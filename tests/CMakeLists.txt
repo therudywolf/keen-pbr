@@ -17,6 +17,7 @@ add_executable(keen-pbr-tests
   test_config_validation.cpp
   test_list_parser.cpp
   test_routing_state.cpp
+  test_conntrack_rerouter.cpp
   test_runtime_interface_inventory.cpp
   test_api_runtime_interfaces.cpp
   test_api_test_routing.cpp
@@ -67,6 +68,7 @@ add_executable(keen-pbr-tests
   ../src/util/traced_mutex.cpp
   ../src/routing/policy_rule.cpp
   ../src/routing/route_table.cpp
+  ../src/routing/conntrack_rerouter.cpp
   ../src/routing/target.cpp
 )
 set_target_properties(keen-pbr-tests PROPERTIES
