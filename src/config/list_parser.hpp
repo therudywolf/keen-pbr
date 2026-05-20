@@ -1,6 +1,7 @@
 #pragma once
 
 #include <istream>
+#include <optional>
 #include <string_view>
 
 #include "../lists/list_entry_visitor.hpp"
@@ -15,6 +16,15 @@ public:
     // Classify a single trimmed entry and dispatch to the visitor.
     // Returns true if the entry was recognized and dispatched.
     static bool classify_entry(std::string_view entry, ListEntryVisitor& visitor);
+
+    // Returns true when the entry is a recognized IP, CIDR, or domain.
+    static bool is_valid_entry(std::string_view entry);
+
+    // Classifies a single trimmed entry, or std::nullopt when unrecognized.
+    static std::optional<EntryType> classify(std::string_view entry);
+
+    // Counts non-empty, non-comment lines that are not recognized list entries.
+    static std::size_t count_invalid_lines(std::istream& input);
 
 private:
     static bool is_ipv4(std::string_view s);
