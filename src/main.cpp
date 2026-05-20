@@ -148,7 +148,7 @@ int main(int argc, char* argv[]) {
     CliOptions opts = parse_args(argc, argv);
 
     if (opts.show_version) {
-        std::cout << "keen-pbr " << KEEN_PBR3_VERSION_STRING << " (" << KEEN_PBR3_VERSION_RELEASE_STRING << ")" << "\n";
+        std::cout << "keen-pbr " << KEEN_PBR3_VERSION_FULL_STRING << " Forest Alpha" << "\n";
         return 0;
     }
 
