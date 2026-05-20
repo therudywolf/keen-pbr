@@ -1,0 +1,17 @@
+# Normalise line endings. The repo is LF-only; this prevents a Windows
+# checkout (core.autocrlf=true) from introducing CRLF, which breaks shell
+# scripts and opkg maintainer scripts (postinst/prerm) at runtime.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  text eol=lf
+*.woff  binary
+*.woff2 binary
+*.ipk binary
+*.gz  binary
+*.zst binary
