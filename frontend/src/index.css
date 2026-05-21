@@ -71,7 +71,7 @@
   --shadow-2xl: 0 1px 4.5px 0px hsl(213.75 37.5% 25.098% / 0.35);
 }
 
-/* Forest Alpha — cyberpunk dark theme (palette mirrors rudywolf.ru) */
+/* FOR3ST — cyberpunk dark theme · palette: violet · cyan · red · amber */
 .dark {
   --background: #050608;
   --foreground: #e8edf2;
@@ -79,34 +79,34 @@
   --card-foreground: #e8edf2;
   --popover: #0e1117;
   --popover-foreground: #e8edf2;
-  --primary: #67f0ff;
-  --primary-foreground: #04161a;
-  --secondary: #14181f;
+  --primary: #b388ff;
+  --primary-foreground: #160a2b;
+  --secondary: #16131f;
   --secondary-foreground: #e8edf2;
-  --muted: #11141a;
-  --muted-foreground: #8390a1;
-  --accent: #0f2027;
-  --accent-foreground: #9defff;
+  --muted: #12131a;
+  --muted-foreground: #8b8aa1;
+  --accent: #1b1430;
+  --accent-foreground: #d6c6ff;
   --destructive: #ff3b30;
   --destructive-foreground: #ffffff;
   --warning: #ffcc67;
   --warning-foreground: #1a1304;
-  --success: #8dff74;
-  --success-foreground: #06180a;
+  --success: #67f0ff;
+  --success-foreground: #04161a;
   --border: rgba(255, 255, 255, 0.11);
   --input: rgba(255, 255, 255, 0.16);
   --ring: #67f0ff;
-  --chart-1: #67f0ff;
-  --chart-2: #8dff74;
+  --chart-1: #b388ff;
+  --chart-2: #67f0ff;
   --chart-3: #ffcc67;
-  --chart-4: #c79bff;
-  --chart-5: #ff3b30;
-  --sidebar: #070a0e;
+  --chart-4: #ff3b30;
+  --chart-5: #8dff74;
+  --sidebar: #08060e;
   --sidebar-foreground: #e8edf2;
-  --sidebar-primary: #67f0ff;
-  --sidebar-primary-foreground: #04161a;
-  --sidebar-accent: #0f2027;
-  --sidebar-accent-foreground: #9defff;
+  --sidebar-primary: #b388ff;
+  --sidebar-primary-foreground: #160a2b;
+  --sidebar-accent: #1b1430;
+  --sidebar-accent-foreground: #d6c6ff;
   --sidebar-border: rgba(255, 255, 255, 0.09);
   --sidebar-ring: #67f0ff;
   --shadow-2xs: 0 1px 4.5px 0px rgba(0, 0, 0, 0.4);
@@ -194,7 +194,7 @@
 /* ── Forest Alpha — cyberpunk polish ─────────────────────────────────── */
 @layer base {
   ::selection {
-    background: rgba(103, 240, 255, 0.28);
+    background: rgba(179, 136, 255, 0.32);
     color: #ffffff;
   }
 
@@ -204,26 +204,31 @@
     letter-spacing: -0.012em;
   }
 
-  /* Ambient neon depth behind the dark UI */
+  /* Ambient neon depth — violet + cyan, a hint of amber */
   .dark body {
     background-image:
       radial-gradient(
-        820px 520px at 84% -12%,
+        780px 500px at 84% -12%,
+        rgba(179, 136, 255, 0.09),
+        transparent 72%
+      ),
+      radial-gradient(
+        680px 520px at -10% 108%,
         rgba(103, 240, 255, 0.07),
         transparent 72%
       ),
       radial-gradient(
-        680px 520px at -10% 110%,
-        rgba(141, 255, 116, 0.05),
-        transparent 72%
+        520px 380px at 50% 116%,
+        rgba(255, 204, 103, 0.035),
+        transparent 70%
       );
     background-attachment: fixed;
   }
 
-  /* Thin cyber scrollbar */
+  /* Thin cyber scrollbar — violet thumb */
   .dark * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(103, 240, 255, 0.32) transparent;
+    scrollbar-color: rgba(179, 136, 255, 0.36) transparent;
   }
   .dark ::-webkit-scrollbar {
     width: 10px;
@@ -233,13 +238,13 @@
     background: transparent;
   }
   .dark ::-webkit-scrollbar-thumb {
-    background: rgba(103, 240, 255, 0.28);
+    background: rgba(179, 136, 255, 0.32);
     border: 3px solid transparent;
     border-radius: 8px;
     background-clip: content-box;
   }
   .dark ::-webkit-scrollbar-thumb:hover {
-    background: rgba(103, 240, 255, 0.55);
+    background: rgba(179, 136, 255, 0.6);
     background-clip: content-box;
   }
 }
