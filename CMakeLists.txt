@@ -231,7 +231,6 @@ set(SOURCES
   src/routing/target.cpp
   src/routing/netlink.cpp
   src/routing/interface_monitor.cpp
-  src/routing/conntrack_rerouter.cpp
   src/routing/route_table.cpp
   src/routing/policy_rule.cpp
   src/routing/routing_verifier.cpp

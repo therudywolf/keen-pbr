@@ -23,8 +23,6 @@ cyberpunk style.
 
 **Reliability & performance**
 
-- **conntrack reroute** — flush stale connections when a domain's IP enters a
-  routing set, so traffic stops "flying past" the configured route.
 - Skip redundant `dnsmasq` restarts — no DNS drops on every reload.
 - Keep Keenetic HW NAT (fastnat) disabled so marked packets reach the `mangle`
   table instead of bypassing policy routing.
