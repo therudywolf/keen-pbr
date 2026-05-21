@@ -196,18 +196,21 @@ export function InterfaceMultiSelectList({
   const [pickerValue, setPickerValue] = useState("")
   const selectedSet = useMemo(() => new Set(value), [value])
   const availableInterfaces = interfaces.filter((item) => !selectedSet.has(item.name))
-  const canAddTyped = availableInterfaces.some((item) => item.name === pickerValue)
+  const canAddTyped = availableInterfaces.some(
+    (item) => item.name === pickerValue.trim(),
+  )
 
   const addInterface = (interfaceName: string) => {
-    if (!interfaceName || selectedSet.has(interfaceName)) {
+    const trimmedName = interfaceName.trim()
+    if (!trimmedName || selectedSet.has(trimmedName)) {
       return
     }
 
-    if (!interfaces.some((item) => item.name === interfaceName)) {
+    if (!interfaces.some((item) => item.name === trimmedName)) {
       return
     }
 
-    onChange([...value, interfaceName])
+    onChange([...value, trimmedName])
     setPickerValue("")
   }
 

@@ -176,25 +176,11 @@ export function ListsPage() {
     }
 
     const nextConfig = buildUpdatedConfigForListDelete(loadedConfig, listId)
-    const hasRouteReferenceUpdates =
-      (loadedConfig.route?.rules ?? []).length !==
-        (nextConfig.route?.rules ?? []).length ||
-      (loadedConfig.route?.rules ?? []).some((rule, index) => {
-        const nextRule = nextConfig.route?.rules?.[index]
-        return !nextRule || (nextRule.list ?? []).length !== (rule.list ?? []).length
-      })
-    const hasDnsReferenceUpdates =
-      (loadedConfig.dns?.rules ?? []).length !==
-        (nextConfig.dns?.rules ?? []).length ||
-      (loadedConfig.dns?.rules ?? []).some((rule, index) => {
-        const nextRule = nextConfig.dns?.rules?.[index]
-        return !nextRule || nextRule.list.length !== rule.list.length
-      })
+    const refsChange = listDeletesAltersRoutingOrDnsRefs(loadedConfig, nextConfig)
 
-    const deletePrompt =
-      hasRouteReferenceUpdates || hasDnsReferenceUpdates
-        ? t("pages.lists.delete.confirmWithReferences", { name: listId })
-        : t("pages.lists.delete.confirm", { name: listId })
+    const deletePrompt = refsChange
+      ? t("pages.lists.delete.confirmWithReferences", { name: listId })
+      : t("pages.lists.delete.confirm", { name: listId })
 
     if (!window.confirm(deletePrompt)) {
       return

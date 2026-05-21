@@ -68,11 +68,13 @@ export function MultiSelectList({
 }) {
   const { t } = useTranslation()
   const [selectValue, setSelectValue] = useState("")
-  const selectedSet = new Set(value)
-  const unavailableSet = new Set(unavailable)
-  const availableOptions = options.filter(
-    (option) => !selectedSet.has(option) && !unavailableSet.has(option),
-  )
+  const availableOptions = useMemo(() => {
+    const selectedSet = new Set(value)
+    const unavailableSet = new Set(unavailable)
+    return options.filter(
+      (option) => !selectedSet.has(option) && !unavailableSet.has(option),
+    )
+  }, [options, value, unavailable])
   const filteredOptions = useMemo(() => {
     const normalizedValue = selectValue.trim().toLowerCase()
 
