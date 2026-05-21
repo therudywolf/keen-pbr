@@ -1,9 +1,4 @@
-PLAN/
-prd.json
-progress.txt
-scripts/ralph
 build/
-.codex
 
 # CMake
 CMakeCache.txt
