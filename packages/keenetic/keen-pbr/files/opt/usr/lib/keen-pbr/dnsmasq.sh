@@ -23,10 +23,6 @@ log_warn() {
     log_message warn "$1"
 }
 
-log_info() {
-    log_message info "$1"
-}
-
 resolver_type() {
     if command -v nft >/dev/null 2>&1; then
         echo "dnsmasq-nftset"

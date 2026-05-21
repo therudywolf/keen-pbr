@@ -173,7 +173,6 @@ private:
     void start_routing_runtime();
     void stop_routing_runtime();
     void restart_routing_runtime();
-    bool routing_runtime_active() const;
     void run_system_resolver_hook_reload();
     void schedule_lists_autoupdate();
     ListsRefreshExecutionResult execute_remote_list_refresh(

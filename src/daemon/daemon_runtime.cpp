@@ -61,10 +61,6 @@ void Daemon::run_system_resolver_hook_reload() {
     log.info("System resolver reload hook complete: {}", command);
 }
 
-bool Daemon::routing_runtime_active() const {
-    return runtime_state_store_.snapshot().routing_runtime_active;
-}
-
 void Daemon::stop_routing_runtime() {
     auto& log = Logger::instance();
     if (!routing_runtime_active_) {
