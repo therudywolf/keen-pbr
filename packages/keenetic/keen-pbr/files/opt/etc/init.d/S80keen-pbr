@@ -10,6 +10,19 @@ POSTCMD=""
 DESC="keen-pbr"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Hand the optional persistent log file down to the daemon environment so its
+# activity survives a reboot. Skipped silently when the value is unset.
+if [ -n "$KEEN_PBR_LOG_FILE" ]; then
+    export KEEN_PBR_LOG_FILE
+fi
+
+# Create the parent directory of the persistent log file. The daemon falls back
+# to stdout/stderr if this fails, so a failure here is non-fatal.
+ensure_log_dir() {
+    [ -n "$KEEN_PBR_LOG_FILE" ] || return 0
+    mkdir -p "$(dirname "$KEEN_PBR_LOG_FILE")" 2>/dev/null || true
+}
+
 log() {
     logger -s -t "keen-pbr" "$1"
 }
@@ -84,6 +97,7 @@ signal_service() {
 }
 
 prepare_start() {
+    ensure_log_dir
     check_runtime_dependencies
     disable_hwnat
 }
