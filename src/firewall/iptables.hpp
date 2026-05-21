@@ -51,11 +51,18 @@ private:
     void cleanup_impl();
     void cleanup_rules_impl();
 
-    // Describes a set to be created via 'ipset restore'.
+    // Describes a hash:net set to be created via 'ipset restore'.
     struct PendingSet {
         std::string name;
         std::string family_str; // "inet" or "inet6"
         uint32_t timeout;       // entry TTL in seconds (0 = no timeout)
+    };
+
+    // Describes a list:set set (a set whose members are other ipsets) created
+    // to back one consolidated mangle rule. Must be created after its members.
+    struct PendingListSet {
+        std::string name;
+        std::vector<std::string> members; // contained per-list ipset names
     };
 
     // Describes an iptables/ip6tables rule to be added to KeenPbrTable.
@@ -70,7 +77,18 @@ private:
 
     // Build the 'create <name> hash:net family <f> [timeout <t>]' line.
     static std::string build_ipset_create_line(const PendingSet& ps);
+    // Build the 'create <name> list:set size <n>' + member 'add' lines for a
+    // consolidated list:set. The set is flushed first so a config change cannot
+    // leave stale members behind when sets are preserved across applies.
+    static std::string build_list_set_lines(const PendingListSet& pls);
+    // Collapse per-list match rules that share a family/verb/fwmark/selector
+    // into one list:set-backed rule each. Returns the consolidated rules and,
+    // via out_list_sets, the list:set definitions they reference.
+    static std::vector<PendingRule> consolidate_rules(
+        const std::vector<PendingRule>& rules,
+        std::vector<PendingListSet>* out_list_sets);
     // Build a complete iptables-restore script for the given protocol and rules.
+    // Per-list match rules are consolidated into list:set-backed rules first.
     static std::string build_ipt_script(bool ipv6,
                                         const std::vector<PendingRule>& rules,
                                         const FirewallGlobalPrefilter& prefilter = {});
@@ -104,6 +122,11 @@ private:
 
     // Track created ipsets: set_name -> family (AF_INET/AF_INET6)
     std::map<std::string, int> created_sets_;
+
+    // Names of synthesized list:set ipsets created by the most recent apply().
+    // Tracked separately so cleanup can destroy them before their member sets
+    // (ipset refuses to destroy a set that a list:set still references).
+    std::vector<std::string> created_list_sets_;
 
     // Track whether chain + jump rule exist for each protocol
     bool chain_v4_created_ = false;

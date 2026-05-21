@@ -245,6 +245,7 @@ set(SOURCES
   src/firewall/firewall_runtime.cpp
   src/firewall/port_spec_util.cpp
   src/firewall/iptables.cpp
+  src/firewall/iptables_set_consolidation.cpp
   src/firewall/nftables.cpp
   src/firewall/ipset_restore_pipe.cpp
   src/firewall/nft_batch_pipe.cpp

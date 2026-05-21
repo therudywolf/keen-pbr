@@ -52,6 +52,14 @@ public:
     return IptablesFirewall::build_ipset_create_line(ps);
   }
 
+  static std::string build_list_set_lines(const std::string &name,
+                                          const std::vector<std::string> &members) {
+    IptablesFirewall::PendingListSet pls;
+    pls.name = name;
+    pls.members = members;
+    return IptablesFirewall::build_list_set_lines(pls);
+  }
+
   static std::string build_ipt_script(bool ipv6,
                                       const std::vector<RuleDesc> &descs,
                                       FirewallGlobalPrefilter prefilter = {}) {
@@ -767,25 +775,90 @@ TEST_CASE("dynamic set naming: kpbr6d_ IPv6 with timeout") {
   CHECK(line == "create kpbr6d_mylist hash:net family inet6 timeout 86400 -exist\n");
 }
 
-TEST_CASE("dual-set mark rules: both static and dynamic sets get mark rules") {
+TEST_CASE("dual-set mark rules: static and dynamic sets fold into one list:set rule") {
+  // kpbr4_ and kpbr4d_ share a family/verb/fwmark/selector, so consolidation
+  // collapses them into a single list:set-backed mark rule.
   auto s = T::build_ipt_script(false, {mark_rule("kpbr4_mylist", false, 0x100),
                                        mark_rule("kpbr4d_mylist", false, 0x100)});
-  CHECK(s.find("--match-set kpbr4_mylist dst -j MARK --set-xmark 0x100/0xffffffff") != std::string::npos);
-  CHECK(s.find("--match-set kpbr4d_mylist dst -j MARK --set-xmark 0x100/0xffffffff") != std::string::npos);
+  CHECK(s.find("--match-set kpbrm_0 dst -j MARK --set-xmark 0x100/0xffffffff") != std::string::npos);
+  CHECK(s.find("--match-set kpbrm_0 dst -j RETURN") != std::string::npos);
+  // The per-list sets are no longer referenced directly by the chain rules.
+  CHECK(s.find("--match-set kpbr4_mylist") == std::string::npos);
+  CHECK(s.find("--match-set kpbr4d_mylist") == std::string::npos);
 }
 
-TEST_CASE("dual-set drop rules: both static and dynamic sets get drop rules") {
+TEST_CASE("dual-set drop rules: static and dynamic sets fold into one list:set rule") {
   auto s = T::build_ipt_script(false, {drop_rule("kpbr4_mylist", false),
                                        drop_rule("kpbr4d_mylist", false)});
-  CHECK(s.find("--match-set kpbr4_mylist dst -j DROP") != std::string::npos);
-  CHECK(s.find("--match-set kpbr4d_mylist dst -j DROP") != std::string::npos);
+  CHECK(s.find("--match-set kpbrm_0 dst -j DROP") != std::string::npos);
+  CHECK(s.find("--match-set kpbr4_mylist") == std::string::npos);
+  CHECK(s.find("--match-set kpbr4d_mylist") == std::string::npos);
 }
 
-TEST_CASE("dual-set IPv6 mark rules: kpbr6_ and kpbr6d_ both matched") {
+TEST_CASE("dual-set IPv6 mark rules: kpbr6_ and kpbr6d_ fold into one list:set rule") {
   auto s = T::build_ipt_script(true, {mark_rule("kpbr6_mylist", true, 0x200),
                                       mark_rule("kpbr6d_mylist", true, 0x200)});
-  CHECK(s.find("--match-set kpbr6_mylist dst -j MARK --set-xmark 0x200/0xffffffff") != std::string::npos);
-  CHECK(s.find("--match-set kpbr6d_mylist dst -j MARK --set-xmark 0x200/0xffffffff") != std::string::npos);
+  CHECK(s.find("--match-set kpbrm_0 dst -j MARK --set-xmark 0x200/0xffffffff") != std::string::npos);
+  CHECK(s.find("--match-set kpbr6_mylist") == std::string::npos);
+  CHECK(s.find("--match-set kpbr6d_mylist") == std::string::npos);
+}
+
+// =============================================================================
+// list:set consolidation tests
+// =============================================================================
+
+TEST_CASE("build_list_set_lines: create + flush + members, sized with headroom") {
+  auto s = T::build_list_set_lines("kpbrm_0", {"kpbr4_a", "kpbr4_b"});
+  // 2 members -> size 2 + 2/2 + 8 = 11.
+  CHECK(s == "create kpbrm_0 list:set size 11 -exist\n"
+             "flush kpbrm_0\n"
+             "add kpbrm_0 kpbr4_a -exist\n"
+             "add kpbrm_0 kpbr4_b -exist\n");
+}
+
+TEST_CASE("build_ipt_script: single per-list set is left as a direct rule") {
+  // One set in its group: no list:set, the per-list set is matched directly.
+  auto s = T::build_ipt_script(false, {mark_rule("kpbr4_only", false, 0x100)});
+  CHECK(s.find("--match-set kpbr4_only dst -j MARK --set-xmark 0x100/0xffffffff") !=
+        std::string::npos);
+  CHECK(s.find("kpbrm_") == std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: many lists to one outbound collapse to one rule") {
+  std::vector<Rule> rules;
+  for (int i = 0; i < 5; ++i) {
+    rules.push_back(mark_rule("kpbr4_l" + std::to_string(i), false, 0x100));
+  }
+  auto s = T::build_ipt_script(false, rules);
+  // Exactly one MARK rule (plus its RETURN), against the combined set.
+  CHECK(s.find("--match-set kpbrm_0 dst -j MARK --set-xmark 0x100/0xffffffff") !=
+        std::string::npos);
+  for (int i = 0; i < 5; ++i) {
+    CHECK(s.find("--match-set kpbr4_l" + std::to_string(i)) == std::string::npos);
+  }
+}
+
+TEST_CASE("build_ipt_script: lists to different outbounds get separate combined sets") {
+  auto s = T::build_ipt_script(false, {mark_rule("kpbr4_a0", false, 0x100),
+                                       mark_rule("kpbr4_a1", false, 0x100),
+                                       mark_rule("kpbr4_b0", false, 0x200),
+                                       mark_rule("kpbr4_b1", false, 0x200)});
+  CHECK(s.find("--match-set kpbrm_0 dst -j MARK --set-xmark 0x100/0xffffffff") !=
+        std::string::npos);
+  CHECK(s.find("--match-set kpbrm_1 dst -j MARK --set-xmark 0x200/0xffffffff") !=
+        std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: combined rule order follows first-seen group order") {
+  auto s = T::build_ipt_script(false, {mark_rule("kpbr4_a0", false, 0x100),
+                                       mark_rule("kpbr4_b0", false, 0x200),
+                                       mark_rule("kpbr4_a1", false, 0x100),
+                                       mark_rule("kpbr4_b1", false, 0x200)});
+  const auto pos0 = s.find("--match-set kpbrm_0");
+  const auto pos1 = s.find("--match-set kpbrm_1");
+  REQUIRE(pos0 != std::string::npos);
+  REQUIRE(pos1 != std::string::npos);
+  CHECK(pos0 < pos1);
 }
 
 // Helper for direct (no-set) mark rules

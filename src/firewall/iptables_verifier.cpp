@@ -1,5 +1,6 @@
 #include "iptables_verifier.hpp"
 
+#include "iptables_set_consolidation.hpp"
 #include "port_spec_util.hpp"
 #include "../util/format_compat.hpp"
 
@@ -221,7 +222,62 @@ std::vector<ExpectedIptablesRule> expand_expected_rule_states(
         }
     }
 
-    return expanded;
+    // The live iptables backend collapses per-list match rules that share a
+    // family/verb/fwmark/selector into one list:set-backed rule. Run the same
+    // consolidation here so the verifier expects exactly the emitted ruleset
+    // (combined list:set names included) instead of the pre-consolidation
+    // per-list rules.
+    auto to_cons_action = [](RuleActionType a) {
+        switch (a) {
+            case RuleActionType::Mark: return ConsolidatableRule::Action::Mark;
+            case RuleActionType::Drop: return ConsolidatableRule::Action::Drop;
+            case RuleActionType::Pass: return ConsolidatableRule::Action::Pass;
+            case RuleActionType::Skip: break;
+        }
+        return ConsolidatableRule::Action::Mark;
+    };
+    auto from_cons_action = [](ConsolidatableRule::Action a) {
+        switch (a) {
+            case ConsolidatableRule::Action::Mark: return RuleActionType::Mark;
+            case ConsolidatableRule::Action::Drop: return RuleActionType::Drop;
+            case ConsolidatableRule::Action::Pass: return RuleActionType::Pass;
+        }
+        return RuleActionType::Mark;
+    };
+
+    std::vector<ConsolidatableRule> cons_input;
+    cons_input.reserve(expanded.size());
+    for (const auto& exp : expanded) {
+        ConsolidatableRule cr;
+        cr.ipv6 = exp.ipv6;
+        cr.action = to_cons_action(exp.action_type);
+        cr.fwmark = exp.fwmark;
+        cr.criteria = exp.criteria;
+        // A non-empty set name is the per-list member; an empty one marks a
+        // direct selector rule that consolidation passes through unchanged.
+        if (!exp.set_name.empty()) {
+            cr.criteria.dst_set_name = exp.set_name;
+        }
+        cons_input.push_back(std::move(cr));
+    }
+
+    const auto consolidated = consolidate_iptables_rules(cons_input);
+
+    std::vector<ExpectedIptablesRule> result;
+    result.reserve(consolidated.size());
+    for (const auto& cons : consolidated) {
+        ExpectedIptablesRule exp;
+        exp.ipv6 = cons.ipv6;
+        exp.action_type = from_cons_action(cons.action);
+        exp.fwmark = cons.fwmark;
+        exp.criteria = cons.criteria;
+        exp.set_name = cons.criteria.dst_set_name.value_or("");
+        // set_name is carried in the dedicated field, not the criteria matcher.
+        exp.criteria.dst_set_name.reset();
+        result.push_back(std::move(exp));
+    }
+
+    return result;
 }
 
 bool action_matches(const ParsedIptablesRule& actual,

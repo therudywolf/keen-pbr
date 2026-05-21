@@ -636,6 +636,84 @@ TEST_CASE("IptablesFirewallVerifier::verify_rules: skip rule produces no check")
     CHECK(checks.empty());
 }
 
+TEST_CASE("IptablesFirewallVerifier::verify_rules: consolidated list:set rule ok") {
+    // A rule routing a list with both static and dynamic sets to one outbound
+    // is emitted live as a single list:set-backed rule per family. The verifier
+    // runs the same consolidation, so it expects exactly those combined rules.
+    const std::string v4_chain =
+        "-N KeenPbrTable\n"
+        "-A KeenPbrTable -m set --match-set kpbrm_0 dst -j MARK --set-mark 65536\n"
+        "-A KeenPbrTable -m set --match-set kpbrm_0 dst -j RETURN\n";
+    const std::string v6_chain =
+        "-N KeenPbrTable\n"
+        "-A KeenPbrTable -m set --match-set kpbrm_1 dst -j MARK --set-mark 65536\n"
+        "-A KeenPbrTable -m set --match-set kpbrm_1 dst -j RETURN\n";
+
+    auto runner = [&](const std::vector<std::string>& args) -> CommandResult {
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "KeenPbrTable"})) {
+            return command_result(v4_chain);
+        }
+        if (matches_args(args, {"ip6tables", "-t", "mangle", "-S", "KeenPbrTable"})) {
+            return command_result(v6_chain);
+        }
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "PREROUTING"})
+            || matches_args(args, {"ip6tables", "-t", "mangle", "-S", "PREROUTING"})) {
+            return command_result("-A PREROUTING -j KeenPbrTable\n");
+        }
+        return command_result({}, 1);
+    };
+    IptablesFirewallVerifier verifier(runner);
+
+    RuleState rs;
+    rs.rule_index = 0;
+    rs.set_names = {"kpbr4_l", "kpbr6_l", "kpbr4d_l", "kpbr6d_l"};
+    rs.action_type = RuleActionType::Mark;
+    rs.fwmark = 65536u;
+
+    auto checks = verifier.verify_rules({rs});
+    // Four per-list sets collapse into one v4 + one v6 combined rule.
+    REQUIRE(checks.size() == 2);
+    CHECK(checks[0].set_name == "kpbrm_0");
+    CHECK(checks[0].status == CheckStatus::ok);
+    CHECK(checks[1].set_name == "kpbrm_1");
+    CHECK(checks[1].status == CheckStatus::ok);
+}
+
+TEST_CASE("IptablesFirewallVerifier::verify_rules: consolidated rule missing is reported") {
+    // Live ruleset has the v4 combined rule but the v6 one is absent.
+    const std::string v4_chain =
+        "-N KeenPbrTable\n"
+        "-A KeenPbrTable -m set --match-set kpbrm_0 dst -j MARK --set-mark 65536\n";
+
+    auto runner = [&](const std::vector<std::string>& args) -> CommandResult {
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "KeenPbrTable"})) {
+            return command_result(v4_chain);
+        }
+        if (matches_args(args, {"ip6tables", "-t", "mangle", "-S", "KeenPbrTable"})) {
+            return command_result("-N KeenPbrTable\n");
+        }
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "PREROUTING"})
+            || matches_args(args, {"ip6tables", "-t", "mangle", "-S", "PREROUTING"})) {
+            return command_result("-A PREROUTING -j KeenPbrTable\n");
+        }
+        return command_result({}, 1);
+    };
+    IptablesFirewallVerifier verifier(runner);
+
+    RuleState rs;
+    rs.rule_index = 0;
+    rs.set_names = {"kpbr4_a", "kpbr6_a", "kpbr4_b", "kpbr6_b"};
+    rs.action_type = RuleActionType::Mark;
+    rs.fwmark = 65536u;
+
+    auto checks = verifier.verify_rules({rs});
+    REQUIRE(checks.size() == 2);
+    CHECK(checks[0].set_name == "kpbrm_0");
+    CHECK(checks[0].status == CheckStatus::ok);
+    CHECK(checks[1].set_name == "kpbrm_1");
+    CHECK(checks[1].status == CheckStatus::missing);
+}
+
 TEST_CASE("IptablesFirewallVerifier::verify_chain: scaffold without rules is healthy") {
     auto runner = [](const std::vector<std::string>& args) -> CommandResult {
         if (matches_args(args, {"iptables", "-t", "mangle", "-S", "KeenPbrTable"})) {

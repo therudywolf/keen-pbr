@@ -1,10 +1,13 @@
 #include "iptables.hpp"
 #include "ipset_restore_pipe.hpp"
+#include "iptables_set_consolidation.hpp"
 #include "port_spec_util.hpp"
 #include "../log/logger.hpp"
 #include "../util/format_compat.hpp"
 #include "../util/safe_exec.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <sys/socket.h>
@@ -166,6 +169,98 @@ std::string IptablesFirewall::build_ipset_create_line(const PendingSet& ps) {
         return keen_pbr3::format("create {} hash:net family {} -exist\n",
                                  ps.name, ps.family_str);
     }
+}
+
+std::string IptablesFirewall::build_list_set_lines(const PendingListSet& pls) {
+    // list:set has a small default capacity (8); size it to the member count
+    // with generous headroom so a growing config does not overflow it. The
+    // kernel caps list:set at 65536 members.
+    uint64_t size = static_cast<uint64_t>(pls.members.size());
+    size += size / 2 + 8;
+    if (size > 65536) {
+        size = 65536;
+    }
+
+    std::string lines = keen_pbr3::format("create {} list:set size {} -exist\n",
+                                          pls.name, size);
+    // Flush before repopulating: under PreserveSets the set may already exist
+    // with a stale member composition from a previous config.
+    lines += keen_pbr3::format("flush {}\n", pls.name);
+    for (const auto& member : pls.members) {
+        lines += keen_pbr3::format("add {} {} -exist\n", pls.name, member);
+    }
+    return lines;
+}
+
+std::vector<IptablesFirewall::PendingRule> IptablesFirewall::consolidate_rules(
+    const std::vector<PendingRule>& rules,
+    std::vector<PendingListSet>* out_list_sets) {
+    auto to_action = [](PendingRule::Action a) {
+        switch (a) {
+            case PendingRule::Mark: return ConsolidatableRule::Action::Mark;
+            case PendingRule::Drop: return ConsolidatableRule::Action::Drop;
+            case PendingRule::Pass: return ConsolidatableRule::Action::Pass;
+        }
+        return ConsolidatableRule::Action::Mark;
+    };
+    auto from_action = [](ConsolidatableRule::Action a) {
+        switch (a) {
+            case ConsolidatableRule::Action::Mark: return PendingRule::Mark;
+            case ConsolidatableRule::Action::Drop: return PendingRule::Drop;
+            case ConsolidatableRule::Action::Pass: return PendingRule::Pass;
+        }
+        return PendingRule::Mark;
+    };
+
+    // The fwmark mask is firewall-instance-wide (set once via set_fwmark_mask),
+    // so every Mark rule carries the same value; the per-rule mask below is
+    // captured to re-stamp the consolidated rules.
+    std::vector<ConsolidatableRule> input;
+    input.reserve(rules.size());
+    uint32_t fwmark_mask = 0xFFFFFFFFu;
+    for (const auto& pr : rules) {
+        ConsolidatableRule cr;
+        cr.ipv6 = pr.ipv6;
+        cr.action = to_action(pr.action);
+        cr.fwmark = pr.fwmark;
+        cr.criteria = pr.criteria;
+        input.push_back(std::move(cr));
+        if (pr.action == PendingRule::Mark) {
+            fwmark_mask = pr.fwmark_mask;
+        }
+    }
+
+    const auto consolidated = consolidate_iptables_rules(input);
+
+    std::vector<PendingRule> out;
+    out.reserve(consolidated.size());
+    for (const auto& cons : consolidated) {
+        PendingRule pr;
+        pr.ipv6 = cons.ipv6;
+        pr.action = from_action(cons.action);
+        pr.fwmark = cons.fwmark;
+        pr.fwmark_mask = fwmark_mask;
+        pr.criteria = cons.criteria;
+        out.push_back(std::move(pr));
+
+        if (cons.is_combined && out_list_sets != nullptr
+            && cons.criteria.dst_set_name.has_value()) {
+            // Each combined set surfaces once even though the same group can
+            // appear in both the v4 and v6 rule lists (it never does here,
+            // since family is part of the group key, but guard anyway).
+            const std::string& name = *cons.criteria.dst_set_name;
+            const bool seen = std::any_of(
+                out_list_sets->begin(), out_list_sets->end(),
+                [&](const PendingListSet& pls) { return pls.name == name; });
+            if (!seen) {
+                PendingListSet pls;
+                pls.name = name;
+                pls.members = cons.member_sets;
+                out_list_sets->push_back(std::move(pls));
+            }
+        }
+    }
+    return out;
 }
 
 std::string IptablesFirewall::build_proto_port_fragment(L4Proto proto,
@@ -357,11 +452,16 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
 std::string IptablesFirewall::build_ipt_script(bool ipv6,
                                                 const std::vector<PendingRule>& rules,
                                                 const FirewallGlobalPrefilter& prefilter) {
+    // Collapse per-list match rules into list:set-backed rules. The list:set
+    // ipsets themselves are created in apply(); here only the chain rules
+    // (which reference the sets by name) are emitted.
+    const std::vector<PendingRule> consolidated = consolidate_rules(rules, nullptr);
+
     std::string s;
     s += keen_pbr3::format("*mangle\n:{} - [0:0]\n-A PREROUTING -j {}\n",
                            CHAIN_NAME, CHAIN_NAME);
     s += build_prefilter_lines(prefilter);
-    for (const auto& pr : rules) {
+    for (const auto& pr : consolidated) {
         if (pr.ipv6 != ipv6) continue;
         for (const auto& line : build_rule_lines(pr, prefilter)) {
             s += line;
@@ -378,11 +478,25 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
         cleanup_rules_impl();
     }
 
+    // Consolidate per-list match rules into list:set-backed rules. The list:set
+    // definitions are needed here (phase 1) to create the sets; the consolidated
+    // rules themselves are rebuilt by build_ipt_script() in phase 2.
+    std::vector<PendingListSet> pending_list_sets;
+    consolidate_rules(pending_rules_, &pending_list_sets);
+    created_list_sets_.clear();
+
     // Phase 1: ipsets via 'ipset restore -exist'
     {
         std::string ipset_script;
+        // Per-list hash:net sets first — a list:set may only reference sets
+        // that already exist.
         for (const auto& ps : pending_sets_) {
             ipset_script += build_ipset_create_line(ps);
+        }
+        // Consolidated list:set sets, created after their member sets.
+        for (const auto& pls : pending_list_sets) {
+            ipset_script += build_list_set_lines(pls);
+            created_list_sets_.push_back(pls.name);
         }
         for (auto& [set_name, buf] : pending_elements_) {
             std::string elements = buf.str();
@@ -445,7 +559,16 @@ void IptablesFirewall::cleanup_live_impl() {
 
     cleanup_rules_impl();
 
-    // Destroy all created ipsets
+    // Destroy synthesized list:set sets first: ipset refuses to destroy a
+    // hash:net set while a list:set still references it as a member.
+    for (const auto& name : created_list_sets_) {
+        log.verbose("iptables cleanup: destroying list:set ipset {}", name);
+        safe_exec({"ipset", "flush", name}, /*suppress_output=*/true);
+        safe_exec({"ipset", "destroy", name}, /*suppress_output=*/true);
+    }
+    created_list_sets_.clear();
+
+    // Destroy all created per-list ipsets
     for (const auto& [name, _] : created_sets_) {
         log.verbose("iptables cleanup: destroying ipset {}", name);
         safe_exec({"ipset", "flush", name}, /*suppress_output=*/true);
