@@ -198,6 +198,9 @@ if(WITH_API)
 endif()
 
 add_library(keen_pbr_project_options INTERFACE)
+# Personal fork: surface latent issues. Non-fatal (no -Werror) so builds
+# still succeed; applied only to keen-pbr's own targets, not third_party.
+target_compile_options(keen_pbr_project_options INTERFACE -Wall -Wextra)
 if(ENABLE_THREAD_SAFETY_ANALYSIS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(keen_pbr_project_options INTERFACE
