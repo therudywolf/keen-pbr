@@ -107,8 +107,8 @@ export const ruTranslation = {
         },
       },
       brand: {
-        logoAlt: "логотип keen-pbr",
-        tagline: "Пакет для пакетов с пакетами",
+        logoAlt: "логотип FOR3ST",
+        tagline: "ядро keen-pbr · маршрутизация ⌁",
         openMenu: "Открыть меню",
       },
       warning: {
@@ -535,9 +535,9 @@ export const ruTranslation = {
               "Правила маршрутизации сохранены в черновик. Примените новый конфиг, чтобы записать их.",
           },
           empty: {
-            title: "Правил маршрутизации пока нет",
+            title: "// тихо в лесу — правил маршрутизации пока нет",
             description:
-              "Добавьте правило маршрутизации, чтобы направлять подходящий трафик в outbound.",
+              "Добавьте правило, чтобы увести подходящий трафик в outbound. awoo ⌁",
           },
           headers: {
             order: "Порядок",
@@ -627,9 +627,9 @@ export const ruTranslation = {
           description: "Настроенные outbounds и группы urltest.",
           actions: { new: "Добавить outbound" },
           empty: {
-            title: "Outbounds пока нет",
+            title: "// outbounds пока нет",
             description:
-              "Добавьте outbound, чтобы начать строить поведение маршрутизации.",
+              "Добавьте outbound, чтобы начать прокладывать маршруты. ⌁",
           },
           headers: {
             tag: "Название",
@@ -882,7 +882,7 @@ export const ruTranslation = {
             updateAll: "Обновить все",
           },
           empty: {
-            title: "Списков пока нет",
+            title: "// списков пока нет — пустое логово",
             description:
               "Создайте первый список, чтобы использовать его в правилах маршрутизации и DNS.",
           },

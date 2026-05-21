@@ -106,8 +106,8 @@ export const enTranslation = {
         },
       },
       brand: {
-        logoAlt: "keen-pbr logo",
-        tagline: "Get packets sorted",
+        logoAlt: "FOR3ST logo",
+        tagline: "keen-pbr core · policy routing ⌁",
         openMenu: "Open menu",
       },
       warning: {
@@ -526,9 +526,9 @@ export const enTranslation = {
             saved: "Routing rules staged. Apply new config to persist them.",
           },
           empty: {
-            title: "No routing rules yet",
+            title: "// quiet in the forest — no routing rules yet",
             description:
-              "Add a routing rule to direct matching traffic to an outbound.",
+              "Add a routing rule to send matching traffic down an outbound. awoo ⌁",
           },
           headers: {
             order: "Order",
@@ -615,8 +615,8 @@ export const enTranslation = {
           description: "Your configured outbounds and urltest groups.",
           actions: { new: "Add outbound" },
           empty: {
-            title: "No outbounds yet",
-            description: "Add an outbound to start building routing behavior.",
+            title: "// no outbounds yet",
+            description: "Add an outbound to start wiring routing paths. ⌁",
           },
           headers: {
             tag: "Name",
@@ -860,7 +860,7 @@ export const enTranslation = {
             updateAll: "Update all",
           },
           empty: {
-            title: "No lists yet",
+            title: "// no lists yet — empty den",
             description:
               "Create your first list to use it in routing and DNS rules.",
           },

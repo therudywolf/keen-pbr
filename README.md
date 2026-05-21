@@ -1,66 +1,66 @@
-<div align="center">
-  <img src="docs/static/logo.svg" alt="keen-pbr logo" width="140" />
+# 🐺 keen-pbr — FOR3ST Edition
 
-  <h1>keen-pbr</h1>
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-22c55e.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Edition](https://img.shields.io/badge/edition-FOR3ST_v1.0-67f0ff)](#)
+[![keen-pbr core](https://img.shields.io/badge/keen--pbr_core-3.0.3-6b7280)](https://github.com/maksimkurb/keen-pbr)
 
-  <p><strong>Policy-based routing for Linux routers.</strong></p>
-  <p>Route selected traffic through VPN, WAN, or custom IP tables on <strong>OpenWrt</strong>, <strong>Keenetic</strong>, and <strong>Debian</strong> systems.</p>
+**keen-pbr — FOR3ST Edition** is a personal fork of
+[**keen-pbr**](https://github.com/maksimkurb/keen-pbr) by **maksimkurb** —
+policy-based routing for Keenetic / OpenWrt / Debian routers. Same routing
+engine, hardened for a weak Keenetic (MT7621) and reskinned in my own
+cyberpunk style.
 
-  <p>
-    <a href="https://github.com/maksimkurb/keen-pbr/actions/workflows/build-ci.yml">
-      <img src="https://img.shields.io/github/actions/workflow/status/maksimkurb/keen-pbr/.github%2Fworkflows%2Fci-packages.yml?style=for-the-badge&branch=main" alt="Build status" />
-    </a>
-    <a href="https://github.com/maksimkurb/keen-pbr/releases">
-      <img src="https://img.shields.io/github/v/release/maksimkurb/keen-pbr?style=for-the-badge&sort=date" alt="Latest release" />
-    </a>
-    <br>
-    <a href="https://keen-pbr.fyi/">
-      <img src="https://img.shields.io/badge/docs-keen--pbr.fyi-0f766e?style=for-the-badge" alt="Documentation" />
-    </a>
-    <a href="https://t.me/keen_pbr">
-      <img src="https://img.shields.io/badge/Telegram-Community-229ED9?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram community" />
-    </a>
-  </p>
-</div>
+> **This is a personal fork.** For the real, maintained project — the one to
+> install, star and report bugs to — go to
+> **[maksimkurb/keen-pbr](https://github.com/maksimkurb/keen-pbr)**.
+> FOR3ST is not affiliated with or endorsed by keen-pbr, Keenetic or Netcraze.
 
-> keen-pbr is an independent open-source project. It is not an official Keenetic product and is not affiliated with or endorsed by Keenetic or Netcraze.
+Личный форк keen-pbr: тот же движок выборочной маршрутизации (VPN/WAN по
+доменам, IP и портам), плюс пачка фиксов надёжности под слабый роутер и тёмный
+киберпанк-веб в моём стиле.
 
-## What It Does
+## What FOR3ST adds
 
-keen-pbr is a policy-based routing daemon that selectively sends traffic through specific outbounds based on domain lists, IP ranges, ports, and addresses.
+**Reliability & performance**
 
-It is built for embedded Linux routers and can:
+- **conntrack reroute** — flush stale connections when a domain's IP enters a
+  routing set, so traffic stops "flying past" the configured route.
+- Skip redundant `dnsmasq` restarts — no DNS drops on every reload.
+- Keep Keenetic HW NAT (fastnat) disabled so marked packets reach the `mangle`
+  table instead of bypassing policy routing.
+- Coalesce bursts of NDM netfilter events into a single firewall refresh.
+- Config validation no longer rejects real-world lists (CIDRs in domain lists,
+  wildcards, `host:port` — the parser skips them gracefully).
 
-- route traffic through VPN, WAN, blackhole, or custom routing tables
-- use failover chains and health checks to keep traffic on healthy outbounds
-- integrate with `dnsmasq` for domain-based routing
-- provide an optional web UI and HTTP API for management and diagnostics
+**Web UI**
 
-## Documentation & Installation
+- Bulk actions on every table, a list duplicate/overlap checker, multi-line
+  rule conditions, concise "used in rule #N" hints, clearer interface pickers.
+- Full **neon-cyberpunk retheme** — deep black, neon cyan, Space Grotesk +
+  JetBrains Mono — dark by default.
 
-### <a href="https://keen-pbr.fyi/">&gt; Documentation in English &lt;</a>
-### <a href="https://keen-pbr.fyi/ru/">&gt; Документация на русском &lt;</a>
+The reliability and UX work is contributed back upstream as pull requests; the
+cyberpunk skin and branding live only here, in FOR3ST.
 
-## Upgrade from keen-pbr 2.x
+## Build
 
-* [Upgrade from 2.x (in English)](http://keen-pbr.fyi/docs/getting-started/upgrade-from-2x/)
-* [Обновление с версии 2.x (на русском)](http://keen-pbr.fyi/ru/docs/getting-started/upgrade-from-2x/)
+```bash
+make          # host build
+make test     # unit tests (doctest)
+```
 
+Router packages, install guides and full documentation — see the upstream
+project: <https://keen-pbr.fyi/>
 
-## Community
+## Credits
 
-| Need | Link |
-|---|---|
-| Telegram chat | https://t.me/keen_pbr |
-| Bug reports and feature requests | https://github.com/maksimkurb/keen-pbr/issues |
-
-## Support The Project
-
-If keen-pbr helps you, you can support its development here:
-
-- Ko-fi: https://ko-fi.com/keen_pbr
-- CloudTips: https://pay.cloudtips.ru/p/a633c47d
+- **Routing engine, daemon and the original web UI** —
+  [keen-pbr](https://github.com/maksimkurb/keen-pbr) by **maksimkurb**.
+  All credit for the core project goes there.
+- **FOR3ST Edition** — fork, reliability/UX fixes and cyberpunk skin by
+  **rudywolf**.
 
 ## License
 
-See [LICENSE](LICENSE).
+Licensed under **GPL-3.0**, the same license as upstream keen-pbr — see
+[LICENSE](LICENSE). A fork can only stay GPL-3.0, and it does.

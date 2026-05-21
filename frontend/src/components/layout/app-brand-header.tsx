@@ -37,8 +37,12 @@ export function AppBrandHeader({
         <img alt={t("brand.logoAlt")} className="size-full object-contain" src={logoUrl} />
       </div>
       <div className="grid min-w-0 flex-1 text-left leading-tight">
-        <span className="truncate text-base font-medium">keen-pbr</span>
-        <span className="truncate text-xs text-muted-foreground">{t("brand.tagline")}</span>
+        <span className="truncate font-mono text-base font-semibold tracking-tight">
+          FOR3ST<span className="text-primary"> // premium</span>
+        </span>
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
+          {t("brand.tagline")}
+        </span>
       </div>
     </div>
   )

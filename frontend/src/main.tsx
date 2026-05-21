@@ -44,7 +44,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <LanguageProvider>
-          <ThemeProvider>
+          <ThemeProvider defaultTheme="dark">
             <App />
             <Toaster
               offset={{ bottom: toasterBottomOffset }}
