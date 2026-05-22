@@ -127,7 +127,7 @@ function getToneDotClass(tone: RuntimeStatusTone) {
     case "healthy":
       return "bg-success"
     case "info":
-      return "bg-sky-500"
+      return "bg-primary"
     case "degraded":
       return "bg-destructive"
     case "unknown":

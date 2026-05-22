@@ -18,7 +18,7 @@ export function FormField({
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
       {description ? (
-        <p className="text-sm text-slate-500">{description}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
       ) : null}
     </div>
   )

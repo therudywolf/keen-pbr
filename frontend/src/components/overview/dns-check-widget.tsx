@@ -65,6 +65,7 @@ export function DnsCheckWidget({
             ? t("overview.dnsCheck.card.disabledDescription")
             : t("overview.dnsCheck.card.description")
         }
+        terminalFilename="nslookup.sh"
         title={t("overview.dnsCheck.card.title")}
       >
         <div className="flex h-full flex-1 flex-col space-y-4">
@@ -131,7 +132,7 @@ function DnsStatusSummary({
     case "success":
       return (
         <DnsStatusMessage
-          icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+          icon={<CheckCircle2 className="h-5 w-5 text-success" />}
           text={t("overview.dnsCheck.status.browserSuccess")}
           tone="success"
         />
@@ -139,7 +140,7 @@ function DnsStatusSummary({
     case "pc-success":
       return (
         <DnsStatusMessage
-          icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+          icon={<CheckCircle2 className="h-5 w-5 text-success" />}
           text={t("overview.dnsCheck.status.manualProbeSuccess")}
           tone="success"
         />
@@ -183,7 +184,7 @@ function DnsStatusMessage({
     <div
       className={
         tone === "success"
-          ? "flex w-full items-center gap-2 text-emerald-700 dark:text-emerald-300"
+          ? "flex w-full items-center gap-2 text-success"
           : tone === "error"
             ? "flex w-full items-center gap-2 text-destructive"
             : "flex w-full items-center gap-2 text-muted-foreground"

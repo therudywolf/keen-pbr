@@ -43,7 +43,7 @@ export function RoutingDiagnosticsResult({
   return (
     <div className="space-y-4">
       {(diagnostics.dns_error || diagnostics.no_matching_rule) && (
-        <Alert className="border-amber-400/40 bg-amber-50 text-amber-900">
+        <Alert variant="warning">
           <AlertDescription className="space-y-1 text-sm">
             {diagnostics.dns_error ? <div>{diagnostics.dns_error}</div> : null}
             {diagnostics.no_matching_rule ? (
@@ -100,14 +100,14 @@ export function RoutingDiagnosticsResult({
                       className="text-center"
                     >
                       {rule.target_match ? (
-                        <span className="text-xs font-medium text-green-700">
+                        <span className="font-mono text-xs font-medium text-success">
                           {t("overview.routingDiagnostics.listMatch", {
                             list: rule.target_match.list,
                             via: rule.target_match.via,
                           })}
                         </span>
                       ) : (
-                        <CircleOff className="mx-auto h-5 w-5 text-gray-400" />
+                        <CircleOff className="mx-auto h-5 w-5 text-muted-foreground" />
                       )}
                     </TableHead>
                   ))}

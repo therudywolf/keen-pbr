@@ -5,43 +5,43 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* FOR3ST — light theme · same violet identity as the dark theme */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.155 0.012 293);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.155 0.012 293);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.155 0.012 293);
-  --primary: oklch(0.52 0.215 293);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.969 0.006 293);
-  --secondary-foreground: oklch(0.255 0.03 293);
-  --muted: oklch(0.969 0.006 293);
-  --muted-foreground: oklch(0.553 0.022 293);
-  --accent: oklch(0.964 0.014 293);
-  --accent-foreground: oklch(0.4 0.16 293);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(1 0 0);
-  --warning: oklch(0.769 0.188 70.08);
-  --warning-foreground: oklch(52.354% 0.12011 59.695);
-  --success: lab(59.0978% -58.6621 41.2579);
-  --success-foreground: oklch(0.98 0 0);
-  --border: oklch(0.919 0.008 293);
-  --input: oklch(0.919 0.008 293);
-  --ring: oklch(0.62 0.19 293);
-  --chart-1: oklch(0.52 0.215 293);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.646 0.222 41.116);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0.004 293);
-  --sidebar-foreground: oklch(0.155 0.012 293);
-  --sidebar-primary: oklch(0.52 0.215 293);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.964 0.014 293);
-  --sidebar-accent-foreground: oklch(0.4 0.16 293);
-  --sidebar-border: oklch(0.919 0.008 293);
-  --sidebar-ring: oklch(0.62 0.19 293);
+  /* FOR3ST — light theme · cyberpunk-terminal identity (cyan · crimson · amber · green) */
+  --background: #f4f4f6;
+  --foreground: #14131a;
+  --card: #ffffff;
+  --card-foreground: #14131a;
+  --popover: #ffffff;
+  --popover-foreground: #14131a;
+  --primary: #0a8fb0;
+  --primary-foreground: #ffffff;
+  --secondary: #e9e9ee;
+  --secondary-foreground: #2a2933;
+  --muted: #ececf1;
+  --muted-foreground: #62616e;
+  --accent: #fbe9eb;
+  --accent-foreground: #b3303d;
+  --destructive: #d62436;
+  --destructive-foreground: #ffffff;
+  --warning: #c97a12;
+  --warning-foreground: #ffffff;
+  --success: #1f9d52;
+  --success-foreground: #ffffff;
+  --border: rgba(20, 19, 26, 0.12);
+  --input: rgba(20, 19, 26, 0.18);
+  --ring: #0a8fb0;
+  --chart-1: #0a8fb0;
+  --chart-2: #1f9d52;
+  --chart-3: #c97a12;
+  --chart-4: #d62436;
+  --chart-5: #6d4ab0;
+  --sidebar: #ededf1;
+  --sidebar-foreground: #14131a;
+  --sidebar-primary: #0a8fb0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fbe9eb;
+  --sidebar-accent-foreground: #b3303d;
+  --sidebar-border: rgba(20, 19, 26, 0.1);
+  --sidebar-ring: #0a8fb0;
   --font-sans:
     "Space Grotesk", "Inter", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif,
@@ -72,44 +72,44 @@
   --shadow-2xl: 0 1px 4.5px 0px hsl(213.75 37.5% 25.098% / 0.35);
 }
 
-/* FOR3ST — cyberpunk dark theme · palette: violet · cyan · red · amber */
+/* FOR3ST — cyberpunk-terminal dark theme · cyan · crimson · amber · green */
 .dark {
-  --background: #050608;
-  --foreground: #e8edf2;
-  --card: #0b0d11;
-  --card-foreground: #e8edf2;
-  --popover: #0e1117;
-  --popover-foreground: #e8edf2;
-  --primary: #b388ff;
-  --primary-foreground: #160a2b;
-  --secondary: #16131f;
-  --secondary-foreground: #e8edf2;
-  --muted: #12131a;
-  --muted-foreground: #8b8aa1;
-  --accent: #1b1430;
-  --accent-foreground: #d6c6ff;
-  --destructive: #ff3b30;
+  --background: #08070b;
+  --foreground: #e7e7ea;
+  --card: #111016;
+  --card-foreground: #e7e7ea;
+  --popover: #15131b;
+  --popover-foreground: #e7e7ea;
+  --primary: #56d7f0;
+  --primary-foreground: #04181c;
+  --secondary: #1b1a22;
+  --secondary-foreground: #e7e7ea;
+  --muted: #16151c;
+  --muted-foreground: #8a8a96;
+  --accent: #221a1e;
+  --accent-foreground: #ff8a96;
+  --destructive: #ff4655;
   --destructive-foreground: #ffffff;
-  --warning: #ffcc67;
-  --warning-foreground: #1a1304;
-  --success: #67f0ff;
-  --success-foreground: #04161a;
-  --border: rgba(255, 255, 255, 0.11);
-  --input: rgba(255, 255, 255, 0.16);
-  --ring: #67f0ff;
-  --chart-1: #b388ff;
-  --chart-2: #67f0ff;
-  --chart-3: #ffcc67;
-  --chart-4: #ff3b30;
-  --chart-5: #8dff74;
-  --sidebar: #08060e;
-  --sidebar-foreground: #e8edf2;
-  --sidebar-primary: #b388ff;
-  --sidebar-primary-foreground: #160a2b;
-  --sidebar-accent: #1b1430;
-  --sidebar-accent-foreground: #d6c6ff;
-  --sidebar-border: rgba(255, 255, 255, 0.09);
-  --sidebar-ring: #67f0ff;
+  --warning: #ffb454;
+  --warning-foreground: #1c1304;
+  --success: #5ef08f;
+  --success-foreground: #04190d;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #56d7f0;
+  --chart-1: #56d7f0;
+  --chart-2: #5ef08f;
+  --chart-3: #ffb454;
+  --chart-4: #ff4655;
+  --chart-5: #b08aff;
+  --sidebar: #0a090d;
+  --sidebar-foreground: #e7e7ea;
+  --sidebar-primary: #56d7f0;
+  --sidebar-primary-foreground: #04181c;
+  --sidebar-accent: #221a1e;
+  --sidebar-accent-foreground: #ff8a96;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #56d7f0;
   --shadow-2xs: 0 1px 4.5px 0px rgba(0, 0, 0, 0.4);
   --shadow-xs: 0 1px 4.5px 0px rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 2px 8px -1px rgba(0, 0, 0, 0.5);
@@ -192,10 +192,10 @@
   }
 }
 
-/* ── Forest Alpha — cyberpunk polish ─────────────────────────────────── */
+/* ── FOR3ST — cyberpunk-terminal polish ──────────────────────────────── */
 @layer base {
   ::selection {
-    background: rgba(179, 136, 255, 0.32);
+    background: rgba(86, 215, 240, 0.3);
     color: #ffffff;
   }
 
@@ -205,26 +205,36 @@
     letter-spacing: -0.012em;
   }
 
-  /* Ambient neon depth — restrained: a violet and a cyan glow */
+  /* Ambient depth — a restrained crimson glow top-right + faint cyan bottom-left */
   .dark body {
     background-image:
       radial-gradient(
-        720px 480px at 88% -14%,
-        rgba(179, 136, 255, 0.07),
+        760px 520px at 92% -16%,
+        rgba(255, 70, 85, 0.1),
         transparent 70%
       ),
       radial-gradient(
-        640px 500px at -12% 112%,
-        rgba(103, 240, 255, 0.05),
+        620px 480px at -12% 114%,
+        rgba(86, 215, 240, 0.05),
         transparent 72%
       );
     background-attachment: fixed;
   }
 
-  /* Thin cyber scrollbar — violet thumb */
+  :root body {
+    background-image:
+      radial-gradient(
+        720px 480px at 94% -18%,
+        rgba(214, 36, 54, 0.05),
+        transparent 70%
+      );
+    background-attachment: fixed;
+  }
+
+  /* Thin cyber scrollbar — cyan thumb */
   .dark * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(179, 136, 255, 0.36) transparent;
+    scrollbar-color: rgba(86, 215, 240, 0.34) transparent;
   }
   .dark ::-webkit-scrollbar {
     width: 10px;
@@ -234,13 +244,42 @@
     background: transparent;
   }
   .dark ::-webkit-scrollbar-thumb {
-    background: rgba(179, 136, 255, 0.32);
+    background: rgba(86, 215, 240, 0.3);
     border: 3px solid transparent;
     border-radius: 8px;
     background-clip: content-box;
   }
   .dark ::-webkit-scrollbar-thumb:hover {
-    background: rgba(179, 136, 255, 0.6);
+    background: rgba(86, 215, 240, 0.58);
     background-clip: content-box;
+  }
+}
+
+/* ── Terminal-window card system ─────────────────────────────────────── */
+@layer components {
+  /* Title bar of a terminal-window card: traffic-light dots + mono filename. */
+  .terminal-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--muted) 60%, var(--card));
+    padding: 0.4rem 0.7rem;
+  }
+
+  .terminal-dot {
+    height: 0.6rem;
+    width: 0.6rem;
+    flex-shrink: 0;
+    border-radius: 9999px;
+  }
+  .terminal-dot--red {
+    background: var(--destructive);
+  }
+  .terminal-dot--amber {
+    background: var(--warning);
+  }
+  .terminal-dot--green {
+    background: var(--success);
   }
 }

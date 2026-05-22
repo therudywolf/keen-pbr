@@ -76,7 +76,7 @@ export function DnsCheckModal({
             <StatusLine
               icon={
                 isBrowserSuccess ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <CheckCircle2 className="h-4 w-4 text-success" />
                 ) : browserStatus === "checking" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
@@ -88,7 +88,7 @@ export function DnsCheckModal({
             <StatusLine
               icon={
                 isPcSuccess ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <CheckCircle2 className="h-4 w-4 text-success" />
                 ) : pcCheckState.waiting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
@@ -109,9 +109,9 @@ export function DnsCheckModal({
           ) : null}
 
           {pcCheckState.showWarning ? (
-            <Alert className="border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300">
-              <AlertCircle className="text-amber-600 dark:text-amber-300" />
-              <AlertDescription className="text-amber-700 dark:text-amber-300">
+            <Alert variant="warning">
+              <AlertCircle />
+              <AlertDescription>
                 {t("overview.dnsCheck.modal.warning")}
               </AlertDescription>
             </Alert>
@@ -187,7 +187,7 @@ function CommandCopyField({ command }: { command: string }) {
               size="icon-xs"
             >
               {copyFeedback === "copied" ? (
-                <Check className="text-emerald-600" />
+                <Check className="text-success" />
               ) : (
                 <Copy />
               )}

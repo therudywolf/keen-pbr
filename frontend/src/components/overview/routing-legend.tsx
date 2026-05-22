@@ -9,27 +9,27 @@ export function RoutingLegend() {
       <div className="font-medium">{t("overview.routingLegend.title")}</div>
       <ul className="space-y-1">
         <li className="flex items-center gap-2">
-          <CircleCheckBig className="h-4 w-4 text-green-600" />
+          <CircleCheckBig className="h-4 w-4 text-success" />
           {t("overview.routingLegend.inLists")}
         </li>
         <li className="flex items-center gap-2">
-          <CircleOff className="h-4 w-4 text-gray-400" />
+          <CircleOff className="h-4 w-4 text-muted-foreground" />
           {t("overview.routingLegend.notInLists")}
         </li>
         <li className="flex items-center gap-2">
-          <Route className="h-4 w-4 text-green-600" />
+          <Route className="h-4 w-4 text-success" />
           {t("overview.routingLegend.inIpsetAndLists")}
         </li>
         <li className="flex items-center gap-2">
-          <RouteOff className="h-4 w-4 text-gray-400" />
+          <RouteOff className="h-4 w-4 text-muted-foreground" />
           {t("overview.routingLegend.notInIpsetAndNotInLists")}
         </li>
         <li className="flex items-center gap-2">
-          <Route className="h-4 w-4 text-yellow-500" />
+          <Route className="h-4 w-4 text-warning" />
           {t("overview.routingLegend.inIpsetButShouldNotBe")}
         </li>
         <li className="flex items-center gap-2">
-          <RouteOff className="h-4 w-4 text-red-600" />
+          <RouteOff className="h-4 w-4 text-destructive" />
           {t("overview.routingLegend.notInIpsetButShouldBe")}
         </li>
       </ul>
