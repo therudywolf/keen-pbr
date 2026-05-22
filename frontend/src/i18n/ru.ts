@@ -17,6 +17,15 @@ export const ruTranslation = {
         loadErrorDescription:
           "Сейчас не получается загрузить данные. Попробуйте обновить страницу.",
         noneShort: "-",
+        listChips: {
+          count: "Списков: {{count}}",
+          countSingular: "1 список",
+          allLists: "Все списки ({{count}})",
+        },
+        statsDisplay: {
+          tooltip:
+            "Всего записей: {{total}} · IPv4: {{ipv4}} · IPv6: {{ipv6}}",
+        },
         multiSelectList: {
           addItem: "Добавить элемент",
           emptyMessage: "Элементы не найдены.",
@@ -169,6 +178,22 @@ export const ruTranslation = {
             restart: "Перезапустить",
           },
         },
+        metrics: {
+          title: "Метрики",
+          description:
+            "Актуальные показатели из вашей конфигурации и среды маршрутизации.",
+          outboundsReachable: "Доступные исходящие",
+          outboundsDegraded: "Деградировавшие исходящие",
+          outboundsConfigured: "Настроено: {{count}}",
+          routingRules: "Правила маршрутизации",
+          dnsRules: "Правила DNS",
+          dnsServers: "DNS-серверы",
+          lists: "Списки",
+          listEntries: "Записей: {{count}}",
+          interfacesUp: "Интерфейсы активны",
+          firewallBackend: "Бэкенд фаервола",
+          ofTotal: "/ {{total}}",
+        },
         interfaceInventory: {
           title: "Интерфейсы",
           description:
@@ -232,6 +257,17 @@ export const ruTranslation = {
             firewall: "Firewall",
             routes: "Маршруты",
             policies: "Политики",
+          },
+          summary: {
+            chain: "Цепочка фаервола",
+            prerouting: "Хук prerouting",
+            firewallRules: "Правила фаервола",
+            routeTables: "Таблицы маршрутов",
+            policyRules: "Политики маршрутизации",
+            ok: "OK",
+            missing: "НЕТ",
+            mismatch: "РАСХОЖД.",
+            none: "НЕТ",
           },
           chain: "chain",
           prerouting: "prerouting",

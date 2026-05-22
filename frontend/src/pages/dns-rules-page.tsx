@@ -21,6 +21,7 @@ import {
   FieldHint,
   FieldLabel,
 } from "@/components/shared/field"
+import { ListChips } from "@/components/shared/list-chips"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { MultiSelectList } from "@/components/shared/multi-select-list"
 import { PageHeader } from "@/components/shared/page-header"
@@ -404,18 +405,8 @@ export function DnsRulesPage() {
                       )}
                     />
                   </div>,
-                  <ul
-                    className="list-disc space-y-1 pl-5 text-sm"
-                    key={`criteria-${index}`}
-                  >
-                    <li className="text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {t("pages.dnsRules.criteriaLabels.lists")}:
-                      </span>{" "}
-                      {rule.list.join(", ")}
-                    </li>
-                  </ul>,
-                  <span className="font-medium" key={`server-${index}`}>
+                  <ListChips key={`criteria-${index}`} lists={rule.list} />,
+                  <span className="font-mono font-medium" key={`server-${index}`}>
                     {rule.server}
                   </span>,
                   <Badge

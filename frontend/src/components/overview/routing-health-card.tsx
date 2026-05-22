@@ -15,8 +15,23 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { cn } from "@/lib/utils"
 
 type StatusTone = "healthy" | "warning" | "degraded"
+
+/** Roll up a set of per-item checks into a single subsystem verdict. */
+function rollUp(statuses: string[]): "ok" | "missing" | "mismatch" | "empty" {
+  if (statuses.length === 0) {
+    return "empty"
+  }
+  if (statuses.some((status) => status === "mismatch")) {
+    return "mismatch"
+  }
+  if (statuses.some((status) => status !== "ok")) {
+    return "missing"
+  }
+  return "ok"
+}
 
 export function RoutingHealthCard({
   routingHealth,
@@ -44,23 +59,67 @@ export function RoutingHealthCard({
   const hasVisibleEntries =
     firewallRules.length > 0 || groupedRoutes.length > 0 || policyRules.length > 0
 
+  // Subsystem roll-ups computed from the full (unfiltered) check sets so the
+  // status grid always reflects reality, not the "show healthy" toggle.
+  const summaryRows = useMemo(() => {
+    const fwRulesStatus = rollUp(
+      (routingHealth.firewall_rules ?? []).map((rule) => rule.status),
+    )
+    const routesStatus = rollUp(
+      (routingHealth.route_tables ?? []).map((table) => table.status),
+    )
+    const policiesStatus = rollUp(
+      (routingHealth.policy_rules ?? []).map((policy) => policy.status),
+    )
+
+    return [
+      {
+        key: "chain",
+        label: t("overview.routing.summary.chain"),
+        tone: routingHealth.firewall.chain_present
+          ? ("healthy" as StatusTone)
+          : ("degraded" as StatusTone),
+        value: routingHealth.firewall.chain_present
+          ? t("overview.routing.summary.ok")
+          : t("overview.routing.summary.missing"),
+      },
+      {
+        key: "prerouting",
+        label: t("overview.routing.summary.prerouting"),
+        tone: routingHealth.firewall.prerouting_hook_present
+          ? ("healthy" as StatusTone)
+          : ("degraded" as StatusTone),
+        value: routingHealth.firewall.prerouting_hook_present
+          ? t("overview.routing.summary.ok")
+          : t("overview.routing.summary.missing"),
+      },
+      {
+        key: "firewall",
+        label: t("overview.routing.summary.firewallRules"),
+        ...summaryFromRollup(fwRulesStatus, t),
+      },
+      {
+        key: "routes",
+        label: t("overview.routing.summary.routeTables"),
+        ...summaryFromRollup(routesStatus, t),
+      },
+      {
+        key: "policies",
+        label: t("overview.routing.summary.policyRules"),
+        ...summaryFromRollup(policiesStatus, t),
+      },
+    ]
+  }, [routingHealth, t])
+
   return (
     <div className="flex flex-1 flex-col space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={mapCheckTone(routingHealth.overall)}>
           {routingHealth.overall}
         </StatusBadge>
-        <Badge size="xs" variant="outline">
+        <Badge size="xs" variant="outline" className="font-mono">
           {routingHealth.firewall_backend}
         </Badge>
-        <ChainStateBadge
-          isHealthy={routingHealth.firewall.chain_present}
-        >
-          {t("overview.routing.chain")}
-        </ChainStateBadge>
-        <ChainStateBadge isHealthy={routingHealth.firewall.prerouting_hook_present}>
-          {t("overview.routing.prerouting")}
-        </ChainStateBadge>
         <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           <Checkbox
             checked={showHealthyEntries}
@@ -68,6 +127,18 @@ export function RoutingHealthCard({
           />
           <span>{t("overview.routing.showHealthyEntries")}</span>
         </label>
+      </div>
+
+      {/* Subsystem status grid — the at-a-glance "what works" view. */}
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {summaryRows.map((row) => (
+          <HealthSummaryTile
+            key={row.key}
+            label={row.label}
+            tone={row.tone}
+            value={row.value}
+          />
+        ))}
       </div>
 
       {!hasVisibleEntries ? (
@@ -127,7 +198,9 @@ export function RoutingHealthCard({
                   key={`${group.key}-${index}`}
                   primary={
                     <>
-                      <span className="text-sm font-medium">{group.outboundTag}</span>
+                      <span className="font-mono text-[12px] font-medium text-foreground sm:text-sm">
+                        {group.outboundTag}
+                      </span>
                       <InlineMeta>
                         {t("overview.routing.tableLabel", { value: group.tableId })}
                       </InlineMeta>
@@ -189,6 +262,51 @@ export function RoutingHealthCard({
   )
 }
 
+/** A single subsystem tile in the status grid. */
+function HealthSummaryTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone: StatusTone
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5",
+        tone === "healthy"
+          ? "border-success/30"
+          : tone === "warning"
+            ? "border-warning/40"
+            : "border-destructive/40",
+      )}
+    >
+      <span className="min-w-0 truncate font-mono text-[11px] tracking-wide text-muted-foreground uppercase">
+        {label}
+      </span>
+      <StatusBadge tone={tone}>{value}</StatusBadge>
+    </div>
+  )
+}
+
+function summaryFromRollup(
+  status: ReturnType<typeof rollUp>,
+  t: (key: string) => string,
+): { tone: StatusTone; value: string } {
+  switch (status) {
+    case "ok":
+      return { tone: "healthy", value: t("overview.routing.summary.ok") }
+    case "mismatch":
+      return { tone: "degraded", value: t("overview.routing.summary.mismatch") }
+    case "missing":
+      return { tone: "warning", value: t("overview.routing.summary.missing") }
+    default:
+      return { tone: "warning", value: t("overview.routing.summary.none") }
+  }
+}
+
 function CompactSection<T>({
   title,
   items,
@@ -201,8 +319,12 @@ function CompactSection<T>({
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-muted-foreground">{items.length}</span>
+        <h3 className="font-mono text-sm font-semibold">
+          <span className="text-primary">{">"}</span> {title}
+        </h3>
+        <span className="font-mono text-xs text-muted-foreground">
+          {items.length}
+        </span>
       </div>
       <div className="space-y-2">{items.map(renderItem)}</div>
     </section>
@@ -229,19 +351,7 @@ function CompactDiagnosticRow({
 }
 
 function InlineMeta({ children }: { children: ReactNode }) {
-  return <span className="text-xs text-muted-foreground">{children}</span>
-}
-
-function ChainStateBadge({
-  isHealthy,
-  children,
-}: {
-  isHealthy: boolean
-  children: ReactNode
-}) {
-  return (
-    <Badge size="xs" variant={isHealthy ? "success" : "warning"}>{children}</Badge>
-  )
+  return <span className="font-mono text-xs text-muted-foreground">{children}</span>
 }
 
 function PresenceBadge({
@@ -415,6 +525,7 @@ function StatusBadge({
   return (
     <Badge
       size="xs"
+      className="font-mono"
       variant={
         tone === "warning"
           ? "warning"

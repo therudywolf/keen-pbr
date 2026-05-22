@@ -17,6 +17,15 @@ export const enTranslation = {
         loadErrorDescription:
           "We can't load data right now. Try refreshing the page.",
         noneShort: "-",
+        listChips: {
+          count: "{{count}} lists",
+          countSingular: "1 list",
+          allLists: "All {{count}} lists",
+        },
+        statsDisplay: {
+          tooltip:
+            "{{total}} total entries · {{ipv4}} IPv4 · {{ipv6}} IPv6",
+        },
         multiSelectList: {
           addItem: "Add item",
           emptyMessage: "No items found.",
@@ -167,6 +176,21 @@ export const enTranslation = {
             restart: "Restart",
           },
         },
+        metrics: {
+          title: "Metrics",
+          description: "Live counts from your config and the routing runtime.",
+          outboundsReachable: "Outbounds reachable",
+          outboundsDegraded: "Outbounds degraded",
+          outboundsConfigured: "{{count}} configured",
+          routingRules: "Routing rules",
+          dnsRules: "DNS rules",
+          dnsServers: "DNS servers",
+          lists: "Lists",
+          listEntries: "{{count}} entries",
+          interfacesUp: "Interfaces up",
+          firewallBackend: "Firewall backend",
+          ofTotal: "/ {{total}}",
+        },
         interfaceInventory: {
           title: "Interfaces",
           description:
@@ -228,6 +252,17 @@ export const enTranslation = {
             firewall: "Firewall",
             routes: "Routes",
             policies: "Policies",
+          },
+          summary: {
+            chain: "Firewall chain",
+            prerouting: "Prerouting hook",
+            firewallRules: "Firewall rules",
+            routeTables: "Route tables",
+            policyRules: "Policy rules",
+            ok: "OK",
+            missing: "MISSING",
+            mismatch: "MISMATCH",
+            none: "NONE",
           },
           chain: "chain",
           prerouting: "prerouting",

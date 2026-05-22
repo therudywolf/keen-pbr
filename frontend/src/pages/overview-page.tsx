@@ -35,6 +35,7 @@ import { RuntimeOutboundDetails } from "@/components/shared/runtime-outbound-sta
 import { SectionCard } from "@/components/shared/section-card"
 import { RuntimeInterfacesInventoryPanel } from "@/components/overview/runtime-interfaces-inventory"
 import { RoutingHealthCard } from "@/components/overview/routing-health-card"
+import { OverviewMetrics } from "@/components/overview/overview-metrics"
 import { DnsCheckWidget } from "@/components/overview/dns-check-widget"
 import { DiagnosticsDownloadDialog } from "@/components/overview/diagnostics-download-dialog"
 import { getDnsmasqBadgeState } from "@/components/overview/dnsmasq-status"
@@ -242,10 +243,19 @@ export function OverviewPage() {
         title={t("nav.items.systemMonitor")}
       />
 
+      <OverviewMetrics
+        config={loadedConfig}
+        isLoading={configQuery.isLoading}
+        routingHealth={routingHealth}
+        runtimeInterfaces={runtimeInterfaces}
+        runtimeOutbounds={runtimeOutbounds}
+      />
+
       <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard
           className="h-full"
           contentClassName="flex flex-1 flex-col"
+          terminalFilename="systemctl.status"
           title={t("overview.runtime.title")}
           description={t("overview.runtime.description")}
         >
@@ -263,15 +273,15 @@ export function OverviewPage() {
             <div className="flex h-full flex-1 flex-col">
               <div className="mb-2 grid gap-4 md:grid-cols-2">
                 <div>
-                  <div className="mb-1 text-sm text-muted-foreground">
+                  <div className="mb-1 font-mono text-[11px] tracking-wider text-muted-foreground uppercase">
                     {t("overview.runtime.router")}
                   </div>
-                  <div className="text-lg font-semibold">
+                  <div className="font-mono text-lg font-semibold">
                     {`${serviceHealth.os_type} ${serviceHealth.os_version}`}
                   </div>
                 </div>
                 <div>
-                  <div className="mb-1 text-sm text-muted-foreground">
+                  <div className="mb-1 font-mono text-[11px] tracking-wider text-muted-foreground uppercase">
                     {t("overview.runtime.status")}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -341,7 +351,11 @@ export function OverviewPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard className="h-full" title={t("overview.outbounds.title")}>
+        <SectionCard
+          className="h-full"
+          terminalFilename="outbounds.health"
+          title={t("overview.outbounds.title")}
+        >
           {configQuery.isLoading ? <TableSkeleton /> : null}
           {configQuery.isError || runtimeOutboundsQuery.isError ? (
             <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
@@ -371,6 +385,7 @@ export function OverviewPage() {
         <SectionCard
           className="h-full"
           contentClassName="flex flex-1 flex-col"
+          terminalFilename="routing.health"
           title={t("overview.routing.title")}
           action={
             <Button
@@ -497,6 +512,7 @@ function StatusBadge({
 }) {
   return (
     <Badge
+      className="font-mono"
       size="xs"
       variant={
         tone === "warning"
@@ -520,8 +536,8 @@ function OutboundHeader({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="font-medium">{outbound.tag}</div>
-      <Badge size="xs" variant="outline">
+      <div className="font-mono font-medium">{outbound.tag}</div>
+      <Badge className="font-mono" size="xs" variant="outline">
         {outbound.type}
       </Badge>
       <StatusBadge tone={mapRuntimeHealthTone(runtimeState?.status)}>

@@ -14,6 +14,7 @@ import { ActionButtons } from "@/components/shared/action-buttons"
 import { BulkSelectionToolbar } from "@/components/shared/bulk-selection-toolbar"
 import { ConfigSaveErrorAlert } from "@/components/shared/config-save-error-alert"
 import { DataTable, type DataTableSelection } from "@/components/shared/data-table"
+import { ListChips } from "@/components/shared/list-chips"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { PageHeader } from "@/components/shared/page-header"
 import { RuntimeOutboundEntry } from "@/components/shared/runtime-outbound-state"
@@ -319,24 +320,31 @@ export function RoutingRulesPage() {
                 )}
               />
             </div>,
-            <span className="font-medium" key={`${row.id}-order`}>
+            <span className="font-mono font-medium" key={`${row.id}-order`}>
               #{row.order}
             </span>,
             <div
-              className="flex flex-wrap gap-1"
+              className="flex flex-col gap-2"
               key={`${row.id}-conditions`}
             >
-              {row.conditions.map((condition) => (
-                <Badge
-                  className="max-w-[20rem] truncate"
-                  key={`${row.id}-${condition.key}`}
-                  title={`${condition.label}: ${condition.value}`}
-                  variant="outline"
-                >
-                  <span className="font-semibold">{condition.label}:</span>
-                  &nbsp;{condition.value}
-                </Badge>
-              ))}
+              <ListChips lists={row.lists} />
+              {row.conditions.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {row.conditions.map((condition) => (
+                    <Badge
+                      className="max-w-[20rem] truncate font-mono"
+                      key={`${row.id}-${condition.key}`}
+                      title={`${condition.label}: ${condition.value}`}
+                      variant="outline"
+                    >
+                      <span className="font-semibold text-muted-foreground">
+                        {condition.label}:
+                      </span>
+                      &nbsp;{condition.value}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
             </div>,
             <div key={`${row.id}-outbound`}>
               <RuntimeOutboundEntry
@@ -401,17 +409,22 @@ function getRouteRuleRow(
   t: (key: string) => string,
   runtimeState?: RuntimeOutboundState
 ) {
-  const conditions = getRuleDetailPieces(rule).map((piece) => ({
-    key: piece.key,
-    label: t(CRITERIA_LABEL_KEY[piece.key]),
-    value: piece.value,
-  }))
+  // Lists render as scannable chips; the remaining match criteria stay as
+  // labelled badges, so the "lists" piece is filtered out of `conditions`.
+  const conditions = getRuleDetailPieces(rule)
+    .filter((piece) => piece.key !== "lists")
+    .map((piece) => ({
+      key: piece.key,
+      label: t(CRITERIA_LABEL_KEY[piece.key]),
+      value: piece.value,
+    }))
 
   return {
     id: `routing-rule-${index}`,
     enabled: rule.enabled ?? true,
     index,
     order: index + 1,
+    lists: (rule.list ?? []).filter(Boolean),
     conditions,
     outbound: rule.outbound,
     runtimeState,
