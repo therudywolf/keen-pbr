@@ -66,11 +66,6 @@ std::vector<L4Proto> expand_l4_protos_for_iptables(
     return {criteria.proto};
 }
 
-std::string normalize_iptables_port_spec(const std::string& spec) {
-    if (spec.empty()) return {};
-    return parse_port_spec(spec).to_iptables_string();
-}
-
 std::string normalize_addr_value(const std::string& addr) {
     const auto slash = addr.find('/');
     if (slash == std::string::npos) {

@@ -267,6 +267,7 @@ std::vector<DisplayFirewallRule> build_display_firewall_rules(
             .status = check.status,
             .status_label_override = std::nullopt,
             .detail = check.detail,
+            .selected_outbound = std::nullopt,
         };
 
         auto info_it = urltest_rule_info_by_set.find(check.set_name);
@@ -339,7 +340,6 @@ void print_header(const RoutingHealthReport& report, const std::string& config_p
 
 void print_outbound_section(const Config& config,
                             const OutboundMarkMap& marks,
-                            const RouteTable& routes,
                             const RoutingHealthReport& report) {
     std::map<std::string, std::vector<const RouteTableCheck*>> routes_by_outbound;
     for (const auto& rt : report.route_tables) {
@@ -534,7 +534,7 @@ int run_status_command(const Config& config, const std::string& config_path) {
     const auto display_firewall_rules = build_display_firewall_rules(config, marks, report.firewall_rules);
 
     print_header(report, config_path);
-    print_outbound_section(config, marks, routes, report);
+    print_outbound_section(config, marks, report);
     print_firewall_section(display_firewall_rules, report);
     print_overall_summary(report, display_firewall_rules);
 

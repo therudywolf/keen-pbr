@@ -37,7 +37,7 @@ std::mutex& keenetic_dns_cache_mutex() {
 using FetchFn = std::function<std::string()>;
 using NowFn = std::function<std::chrono::steady_clock::time_point()>;
 
-FetchFn& keenetic_dns_fetch_fn() {
+[[maybe_unused]] FetchFn& keenetic_dns_fetch_fn() {
     static FetchFn fetch_fn = []() {
         HttpClient client;
         client.set_timeout(std::chrono::seconds(3));
@@ -46,14 +46,14 @@ FetchFn& keenetic_dns_fetch_fn() {
     return fetch_fn;
 }
 
-NowFn& keenetic_dns_now_fn() {
+[[maybe_unused]] NowFn& keenetic_dns_now_fn() {
     static NowFn now_fn = []() {
         return std::chrono::steady_clock::now();
     };
     return now_fn;
 }
 
-bool is_cache_fresh(const KeeneticDnsCacheState& state,
+[[maybe_unused]] bool is_cache_fresh(const KeeneticDnsCacheState& state,
                     const std::chrono::steady_clock::time_point now) {
     return state.snapshot.has_value() && now - state.fetched_at < kKeeneticDnsCacheTtl;
 }
@@ -199,7 +199,7 @@ bool looks_like_ipv6_dns_server_address(const std::string& address) {
     return false;
 }
 
-bool keenetic_dns_snapshots_equal(const KeeneticDnsSnapshot& lhs,
+[[maybe_unused]] bool keenetic_dns_snapshots_equal(const KeeneticDnsSnapshot& lhs,
                                   const KeeneticDnsSnapshot& rhs) {
     if (lhs.addresses.size() != rhs.addresses.size() ||
         lhs.upstreams.size() != rhs.upstreams.size() ||

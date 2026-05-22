@@ -157,7 +157,7 @@ RouteTableCheck RoutingVerifier::verify_route_table(const RouteSpec& expected,
 }
 
 PolicyRuleCheck RoutingVerifier::verify_policy_rule(const RuleSpec& expected,
-                                                     const std::string& outbound_tag) {
+                                                     const std::string& /*outbound_tag*/) {
     PolicyRuleCheck result;
     result.fwmark         = expected.fwmark;
     result.fwmask         = expected.fwmask;

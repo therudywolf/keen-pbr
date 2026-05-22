@@ -13,12 +13,6 @@ namespace keen_pbr3 {
 
 namespace {
 
-std::string route_type_label(const RouteSpec& spec) {
-    if (spec.unreachable) return "unreachable";
-    if (spec.blackhole) return "blackhole";
-    return "unicast";
-}
-
 std::string route_type_label(const DumpedRoute& route) {
     if (route.unreachable) return "unreachable";
     if (route.blackhole) return "blackhole";

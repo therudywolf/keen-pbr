@@ -45,20 +45,6 @@ bool parse_ip(const std::string& ip, int family, void* out) {
     return inet_pton(family, ip.c_str(), out) == 1;
 }
 
-int detect_ip_family(const std::string& ip) {
-    in_addr addr4{};
-    if (inet_pton(AF_INET, ip.c_str(), &addr4) == 1) {
-        return AF_INET;
-    }
-
-    in6_addr addr6{};
-    if (inet_pton(AF_INET6, ip.c_str(), &addr6) == 1) {
-        return AF_INET6;
-    }
-
-    throw ConfigError("Invalid IP address: " + ip);
-}
-
 bool is_interface_up(const std::string& iface) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {
