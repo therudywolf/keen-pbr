@@ -114,6 +114,15 @@ struct InterfaceMonitor::Impl {
                 "Failed to connect interface monitor netlink socket: {}", nl_geterror(err)));
         }
 
+        // Subscribing to RTNLGRP_LINK triggers a burst of RTM_NEWLINK messages;
+        // the default socket receive buffer can overflow (ENOBUFS) before the
+        // daemon drains it. A 1 MiB receive buffer absorbs the startup burst.
+        err = nl_socket_set_buffer_size(socket, 1024 * 1024, 0);
+        if (err < 0) {
+            throw InterfaceMonitorError(format(
+                "Failed to size interface monitor netlink buffer: {}", nl_geterror(err)));
+        }
+
         err = nl_socket_add_memberships(socket, RTNLGRP_LINK, 0);
         if (err < 0) {
             throw InterfaceMonitorError(format(
