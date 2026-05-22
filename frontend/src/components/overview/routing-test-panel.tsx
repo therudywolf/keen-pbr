@@ -37,7 +37,10 @@ export function RoutingTestPanel() {
       : undefined
 
   return (
-    <SectionCard title={t("overview.routingTest.title")}>
+    <SectionCard
+      terminalFilename="traceroute.sh"
+      title={t("overview.routingTest.title")}
+    >
       <form
         className="space-y-3"
         onSubmit={(event) => {

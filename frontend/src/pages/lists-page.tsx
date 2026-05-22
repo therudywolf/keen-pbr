@@ -406,7 +406,7 @@ export function ListsPage() {
             narrowColumns={[0]}
             rows={tableRows.map((list) => [
             <div className="space-y-1" key={`${list.id}-name`}>
-              <div className="flex items-center gap-2 font-medium">
+              <div className="flex items-center gap-2 font-mono font-medium">
                 {list.draft.name}
                 {list.locationIcon === "external" ? (
                   <a
@@ -434,7 +434,11 @@ export function ListsPage() {
                 </div>
               ) : null}
             </div>,
-            <Badge key={`${list.id}-type`} variant="outline">
+            <Badge
+              className="font-mono"
+              key={`${list.id}-type`}
+              variant="outline"
+            >
               {getListSourceLabel(list.draft, t)}
             </Badge>,
             list.stats ? (

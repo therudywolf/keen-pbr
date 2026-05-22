@@ -237,11 +237,11 @@ export function DnsServersPage() {
             ]}
             narrowColumns={[0]}
             rows={dnsServers.map((server) => [
-              <div className="font-medium" key={`${server.tag}-tag`}>
+              <div className="font-mono font-medium" key={`${server.tag}-tag`}>
                 {server.tag}
               </div>,
               <span
-                className="text-sm text-muted-foreground"
+                className="font-mono text-sm text-muted-foreground"
                 key={`${server.tag}-address`}
               >
                 {server.type === DnsServerType.keenetic
@@ -249,6 +249,7 @@ export function DnsServersPage() {
                   : server.address}
               </span>,
               <Badge
+                className="font-mono"
                 key={`${server.tag}-detour`}
                 variant={server.detour ? "outline" : "secondary"}
               >

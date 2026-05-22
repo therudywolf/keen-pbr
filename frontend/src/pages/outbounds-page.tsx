@@ -319,7 +319,11 @@ export function OutboundsPage() {
               title={outbound.tag}
               t={t}
             />,
-            <Badge key={`${outbound.id}-type`} variant="outline">
+            <Badge
+              className="font-mono"
+              key={`${outbound.id}-type`}
+              variant="outline"
+            >
               {outbound.type}
             </Badge>,
             <div

@@ -23,15 +23,10 @@ import {
 import { InterfaceMultiSelectList } from "@/components/shared/interface-picker"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { PageHeader } from "@/components/shared/page-header"
+import { SectionCard } from "@/components/shared/section-card"
 import { ServerValidationAlert } from "@/components/shared/server-validation-alert"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -98,8 +93,8 @@ export function GeneralConfigPage() {
         <GeneralConfigPageSkeleton />
       ) : configQuery.isError || !loadedConfig ? (
         <ListPlaceholder
-          description="We can't load settings right now. Try refreshing the page."
-          title="Unable to load data"
+          description={t("common.loadErrorDescription")}
+          title={t("common.unableToLoadData")}
           variant="error"
         />
       ) : (
@@ -203,16 +198,12 @@ function LoadedGeneralConfigPage({
   }
 
   return (
-    <>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.settings.general.title")}</CardTitle>
-          <CardDescription>
-            {t("pages.settings.general.description")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+    <div className="space-y-6">
+      <SectionCard
+        description={t("pages.settings.general.description")}
+        terminalFilename="daemon.conf"
+        title={t("pages.settings.general.title")}
+      >
           <FieldGroup>
             <form.Field name={SETTINGS_FIELD_NAMES.strictEnforcement}>
               {(field) => (
@@ -304,17 +295,13 @@ function LoadedGeneralConfigPage({
               )}}
             </form.Field>
           </FieldGroup>
-        </CardContent>
-      </Card>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.settings.autoupdate.title")}</CardTitle>
-          <CardDescription>
-            {t("pages.settings.autoupdate.description")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <SectionCard
+        description={t("pages.settings.autoupdate.description")}
+        terminalFilename="autoupdate.cron"
+        title={t("pages.settings.autoupdate.title")}
+      >
           <FieldGroup>
             <form.Field name={SETTINGS_FIELD_NAMES.listsAutoupdateEnabled}>
               {(field) => (
@@ -403,17 +390,13 @@ function LoadedGeneralConfigPage({
               }}
             </form.Field>
           </FieldGroup>
-        </CardContent>
-      </Card>
+      </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("pages.settings.advanced.title")}</CardTitle>
-          <CardDescription>
-            {t("pages.settings.advanced.description")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <SectionCard
+        description={t("pages.settings.advanced.description")}
+        terminalFilename="advanced.conf"
+        title={t("pages.settings.advanced.title")}
+      >
           <FieldGroup>
             <form.Field name={SETTINGS_FIELD_NAMES.fwmarkStart}>
               {(field) => {
@@ -512,9 +495,7 @@ function LoadedGeneralConfigPage({
               }}
             </form.Field>
           </FieldGroup>
-        </CardContent>
-      </Card>
-
+      </SectionCard>
 
       <ServerValidationAlert errors={unmappedServerErrors} />
 
@@ -546,7 +527,7 @@ function LoadedGeneralConfigPage({
           )}
         </form.Subscribe>
       </div>
-    </>
+    </div>
   )
 }
 

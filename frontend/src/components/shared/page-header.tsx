@@ -14,9 +14,9 @@ export function PageHeader({
       <div className="min-w-0">
         <h1
           id="page-title"
-          className="text-balance text-3xl font-semibold tracking-tight md:text-2xl"
+          className="text-balance font-mono text-3xl font-semibold tracking-tight md:text-2xl"
         >
-          {title}
+          <span className="text-primary">//</span> {title}
         </h1>
         <p className="mt-1 max-w-[60ch] text-pretty text-base text-muted-foreground md:text-sm">
           {description}

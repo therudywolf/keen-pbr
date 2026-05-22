@@ -95,7 +95,11 @@ export function RuntimeInterfacesInventoryPanel({
 
   return (
     <div data-testid="overview-interface-inventory">
-      <SectionCard description={labels.description} title={labels.title}>
+      <SectionCard
+        description={labels.description}
+        terminalFilename="ip_link.list"
+        title={labels.title}
+      >
         {errorMessage ? (
           <Alert className="border-destructive/30 bg-destructive/5 text-destructive">
             <AlertDescription>{errorMessage}</AlertDescription>
@@ -112,26 +116,20 @@ export function RuntimeInterfacesInventoryPanel({
           <div className="space-y-3">
             <div className="overflow-x-auto rounded-md border">
               <Table className="min-w-[760px] text-sm">
-                <TableHeader className="bg-muted/40">
+                <TableHeader className="bg-muted/40 [&_th]:font-mono [&_th]:text-[11px] [&_th]:font-semibold [&_th]:tracking-wider [&_th]:text-muted-foreground [&_th]:uppercase">
                   <TableRow>
-                    <TableHead className="font-semibold">
-                      {labels.colName}
-                    </TableHead>
-                    <TableHead className="font-semibold">
-                      {labels.colRuntimeStatus}
-                    </TableHead>
-                    <TableHead className="text-center font-semibold whitespace-nowrap">
+                    <TableHead>{labels.colName}</TableHead>
+                    <TableHead>{labels.colRuntimeStatus}</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">
                       {labels.colAdminUp}
                     </TableHead>
-                    <TableHead className="font-semibold whitespace-nowrap">
+                    <TableHead className="whitespace-nowrap">
                       {labels.colOperState}
                     </TableHead>
-                    <TableHead className="text-center font-semibold whitespace-nowrap">
+                    <TableHead className="text-center whitespace-nowrap">
                       {labels.colCarrier}
                     </TableHead>
-                    <TableHead className="font-semibold">
-                      {labels.colAddresses}
-                    </TableHead>
+                    <TableHead>{labels.colAddresses}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -141,11 +139,12 @@ export function RuntimeInterfacesInventoryPanel({
                       data-interface-name={entry.name}
                       data-testid="overview-interface-row"
                     >
-                      <TableCell className="align-top font-medium">
+                      <TableCell className="align-top font-mono font-medium">
                         {entry.name}
                       </TableCell>
                       <TableCell className="align-top">
                         <Badge
+                          className="font-mono"
                           size="xs"
                           variant={
                             entry.status === RuntimeInterfaceInventoryStatus.up

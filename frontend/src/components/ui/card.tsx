@@ -92,6 +92,37 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * Terminal-window chrome: a title bar with three traffic-light dots and a
+ * monospace filename label, rendered above a {@link Card}'s content. Pair it
+ * with `<Card className="pt-0 gap-0">` so the bar sits flush at the top edge.
+ */
+function CardTerminalBar({
+  filename,
+  action,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & {
+  filename: React.ReactNode
+  action?: React.ReactNode
+}) {
+  return (
+    <div
+      data-slot="card-terminal-bar"
+      className={cn("terminal-titlebar", className)}
+      {...props}
+    >
+      <span aria-hidden="true" className="terminal-dot terminal-dot--red" />
+      <span aria-hidden="true" className="terminal-dot terminal-dot--amber" />
+      <span aria-hidden="true" className="terminal-dot terminal-dot--green" />
+      <span className="ml-1.5 min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+        {filename}
+      </span>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  )
+}
+
 export {
   Card,
   CardHeader,
@@ -100,4 +131,5 @@ export {
   CardAction,
   CardDescription,
   CardContent,
+  CardTerminalBar,
 }

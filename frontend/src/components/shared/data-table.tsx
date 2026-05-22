@@ -94,7 +94,7 @@ export function DataTable({
     >
       <Table className={compact ? "w-full text-sm" : "w-full text-base"}>
         {mergedHeaders ? (
-          <TableHeader className="bg-muted/50">
+          <TableHeader className="bg-muted/50 [&_th]:font-mono [&_th]:text-[11px] [&_th]:tracking-wider [&_th]:text-muted-foreground [&_th]:uppercase">
             <TableRow>
               {mergedHeaders.map((header, headerIndex) => (
                 <TableHead className={headClass(headerIndex)} key={`h-${headerIndex}`}>
