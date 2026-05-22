@@ -169,6 +169,11 @@ void InterfaceMonitor::reconnect() {
         return;
     }
 
+    // The cached per-interface up/down state is stale after a disconnect: the
+    // kernel does not replay current link states on a fresh subscription. Drop
+    // it so the next event for each interface is treated as a change and
+    // re-evaluated, instead of being suppressed against an outdated value.
+    impl_->interface_state.clear();
     impl_->setup_socket();
 }
 

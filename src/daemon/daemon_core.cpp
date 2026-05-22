@@ -306,10 +306,17 @@ void Daemon::enqueue_control_command(std::function<void()> command,
 
 void Daemon::handle_control_commands() {
     uint64_t counter = 0;
-    while (read(control_fd_, &counter, sizeof(counter)) > 0) {
+    ssize_t n;
+    while ((n = read(control_fd_, &counter, sizeof(counter))) > 0) {
     }
-    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        throw DaemonError("eventfd read failed: " + std::string(strerror(errno)));
+    // Capture errno immediately; a drained non-blocking eventfd ends with
+    // EAGAIN/EWOULDBLOCK. Any other failure is logged, not fatal — the
+    // control eventfd is only a wake-up; the queued tasks below are drained
+    // regardless, so a transient read hiccup must not stop the daemon.
+    const int read_errno = errno;
+    if (n < 0 && read_errno != EAGAIN && read_errno != EWOULDBLOCK) {
+        Logger::instance().warn("Control eventfd read failed: {}",
+                                std::strerror(read_errno));
     }
 
     std::vector<ControlTask> commands;
@@ -510,6 +517,9 @@ void Daemon::remove_fd(int fd,
                        const std::string& label) {
     enqueue_control_task([this, fd]() {
         epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
+        // Mark the fd retired for the rest of this epoll batch so a stale
+        // event for a recycled fd number is not dispatched (see run_event_loop).
+        retired_fds_.insert(fd);
 
         KPBR_LOCK_GUARD(fd_entries_mutex_);
         fd_entries_.erase(
@@ -557,7 +567,15 @@ void Daemon::run_event_loop() {
             throw DaemonError("epoll_wait failed: " + std::string(strerror(errno)));
         }
 
+        retired_fds_.clear();
         for (int i = 0; i < nfds; ++i) {
+            // A handler earlier in this batch may have closed an fd; skip any
+            // remaining event for a retired fd number so a recycled fd is not
+            // dispatched to a stale or wrong callback. epoll re-reports a
+            // genuinely-ready re-registered fd on the next wait.
+            if (retired_fds_.count(events[i].data.fd) != 0) {
+                continue;
+            }
             dispatch_event_fd(events[i].data.fd, events[i].events);
         }
     }
@@ -568,72 +586,106 @@ void Daemon::run() {
 
     write_pid_file();
 
-    setup_static_routing();
-    log.info("Static routing tables and ip rules installed.");
+    // Everything from here on must be torn down on EVERY exit path — a normal
+    // stop, an epoll_wait failure, or any exception out of a setup step or an
+    // event handler. Otherwise firewall rules, ip rules/routes and the PID
+    // file are left installed with no daemon to maintain them.
+    try {
+        setup_static_routing();
+        log.info("Static routing tables and ip rules installed.");
 
-    log.info("Loading lists...");
-    list_service_.download_uncached(config_, outbound_marks_);
+        log.info("Loading lists...");
+        list_service_.download_uncached(config_, outbound_marks_);
 
-    register_urltest_outbounds();
-    apply_firewall(FirewallApplyMode::Destructive);
-    log.info("Firewall rules and routing applied.");
+        register_urltest_outbounds();
+        apply_firewall(FirewallApplyMode::Destructive);
+        log.info("Firewall rules and routing applied.");
 
-    schedule_lists_autoupdate();
+        schedule_lists_autoupdate();
 
-    update_resolver_config_hash();
-    refresh_resolver_config_hash_actual_async();
-    schedule_resolver_config_hash_actual_refresh();
-    publish_runtime_state();
+        update_resolver_config_hash();
+        refresh_resolver_config_hash_actual_async();
+        schedule_resolver_config_hash_actual_refresh();
+        publish_runtime_state();
 
-    setup_dns_probe();
+        setup_dns_probe();
 
-    if (interface_monitor_) {
-        add_fd(interface_monitor_->fd(),
-               EPOLLIN,
-               [this](uint32_t events) { handle_interface_monitor_events(events); },
-               true,
-               "interface-monitor");
-    }
+        if (interface_monitor_) {
+            add_fd(interface_monitor_->fd(),
+                   EPOLLIN,
+                   [this](uint32_t events) { handle_interface_monitor_events(events); },
+                   true,
+                   "interface-monitor");
+        }
 
 #ifdef WITH_API
-    setup_api();
+        setup_api();
 #endif
 
-    log.info("Daemon running. PID: {}", getpid());
+        log.info("Daemon running. PID: {}", getpid());
 
-    running_.store(true, std::memory_order_release);
-    event_loop_thread_id_.store(std::this_thread::get_id(), std::memory_order_relaxed);
-    event_loop_active_.store(true, std::memory_order_release);
-    accept_posted_control_tasks_.store(true, std::memory_order_release);
+        running_.store(true, std::memory_order_release);
+        event_loop_thread_id_.store(std::this_thread::get_id(), std::memory_order_relaxed);
+        event_loop_active_.store(true, std::memory_order_release);
+        accept_posted_control_tasks_.store(true, std::memory_order_release);
 
-    run_event_loop();
+        run_event_loop();
+    } catch (const std::exception& e) {
+        log.error("Daemon terminated by exception: {}", e.what());
+    } catch (...) {
+        log.error("Daemon terminated by an unknown exception");
+    }
+
+    shutdown_runtime();
+}
+
+void Daemon::shutdown_runtime() {
+    auto& log = Logger::instance();
 
     event_loop_active_.store(false, std::memory_order_release);
     event_loop_thread_id_.store(std::thread::id{}, std::memory_order_relaxed);
     accept_posted_control_tasks_.store(false, std::memory_order_release);
-    blocking_executor_.shutdown();
 
     log.info("Shutting down...");
 
+    // Each step is guarded individually: one failing step must not skip the
+    // rest, because the firewall, routes and PID file all need cleanup.
+    const auto guarded = [&log](const char* what, const std::function<void()>& step) {
+        try {
+            step();
+        } catch (const std::exception& e) {
+            log.error("Shutdown step '{}' failed: {}", what, e.what());
+        } catch (...) {
+            log.error("Shutdown step '{}' failed: unknown error", what);
+        }
+    };
+
+    guarded("blocking-executor", [this]() { blocking_executor_.shutdown(); });
+
 #ifdef WITH_API
-    if (dns_test_broadcaster_) {
-        dns_test_broadcaster_->close_all();
-    }
-    if (api_server_) {
-        api_server_->stop();
-    }
+    guarded("dns-test-broadcaster", [this]() {
+        if (dns_test_broadcaster_) {
+            dns_test_broadcaster_->close_all();
+        }
+    });
+    guarded("api-server", [this]() {
+        if (api_server_) {
+            api_server_->stop();
+        }
+    });
 #endif
 
-    teardown_dns_probe();
-
-    if (urltest_manager_) {
-        urltest_manager_->clear();
-    }
-    scheduler_->cancel_all();
-    route_table_.clear();
-    policy_rules_.clear();
-    firewall_->cleanup();
-    remove_pid_file();
+    guarded("dns-probe", [this]() { teardown_dns_probe(); });
+    guarded("urltest", [this]() {
+        if (urltest_manager_) {
+            urltest_manager_->clear();
+        }
+    });
+    guarded("scheduler", [this]() { scheduler_->cancel_all(); });
+    guarded("route-table", [this]() { route_table_.clear(); });
+    guarded("policy-rules", [this]() { policy_rules_.clear(); });
+    guarded("firewall", [this]() { firewall_->cleanup(); });
+    guarded("pid-file", [this]() { remove_pid_file(); });
 }
 
 void Daemon::stop() {

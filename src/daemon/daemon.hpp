@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "../config/config.hpp"
@@ -152,6 +153,10 @@ private:
     void refresh_iproute_and_firewall_runtime();
     void dispatch_event_fd(int fd, uint32_t events);
     void run_event_loop();
+    // Exception-safe teardown of all runtime subsystems. Runs on every exit
+    // path of run(), so firewall rules, routes and the PID file are never
+    // left behind when the daemon stops or aborts.
+    void shutdown_runtime();
 
     // lifecycle and runtime apply
     void setup_static_routing();
@@ -274,6 +279,10 @@ private:
     };
     mutable TracedMutex fd_entries_mutex_;
     std::vector<FdEntry> fd_entries_ GUARDED_BY(fd_entries_mutex_);
+    // fds unregistered during the current epoll_wait batch. Touched only on
+    // the event-loop thread; lets run_event_loop skip a stale event for an
+    // fd number that was closed (and possibly recycled) mid-batch.
+    std::unordered_set<int> retired_fds_;
 
     int pid_file_fd_{-1};
     int control_fd_{-1};
