@@ -1,5 +1,6 @@
 #include "interface_monitor.hpp"
 
+#include "../log/logger.hpp"
 #include "../util/format_compat.hpp"
 
 #include <cerrno>
@@ -112,6 +113,16 @@ struct InterfaceMonitor::Impl {
         if (err < 0) {
             throw InterfaceMonitorError(format(
                 "Failed to connect interface monitor netlink socket: {}", nl_geterror(err)));
+        }
+
+        // Enlarge the receive buffer so the kernel's startup burst of RTM_NEWLINK
+        // messages cannot overflow the default size (surfaces as ENOBUFS). The
+        // monitor still works at the default size, so a failure here is not fatal.
+        err = nl_socket_set_buffer_size(socket, 1024 * 1024, 0);
+        if (err < 0) {
+            Logger::instance().warn(
+                "Failed to enlarge interface monitor netlink receive buffer: {}",
+                nl_geterror(err));
         }
 
         err = nl_socket_add_memberships(socket, RTNLGRP_LINK, 0);
