@@ -5,42 +5,43 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* FOR3ST — light theme · same violet identity as the dark theme */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.155 0.012 293);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.155 0.012 293);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.4437 0.1039 252.7245);
+  --popover-foreground: oklch(0.155 0.012 293);
+  --primary: oklch(0.52 0.215 293);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.969 0.006 293);
+  --secondary-foreground: oklch(0.255 0.03 293);
+  --muted: oklch(0.969 0.006 293);
+  --muted-foreground: oklch(0.553 0.022 293);
+  --accent: oklch(0.964 0.014 293);
+  --accent-foreground: oklch(0.4 0.16 293);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
   --warning: oklch(0.769 0.188 70.08);
   --warning-foreground: oklch(52.354% 0.12011 59.695);
   --success: lab(59.0978% -58.6621 41.2579);
   --success-foreground: oklch(0.98 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
+  --border: oklch(0.919 0.008 293);
+  --input: oklch(0.919 0.008 293);
+  --ring: oklch(0.62 0.19 293);
+  --chart-1: oklch(0.52 0.215 293);
   --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-3: oklch(0.646 0.222 41.116);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar: oklch(0.985 0.004 293);
+  --sidebar-foreground: oklch(0.155 0.012 293);
+  --sidebar-primary: oklch(0.52 0.215 293);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.964 0.014 293);
+  --sidebar-accent-foreground: oklch(0.4 0.16 293);
+  --sidebar-border: oklch(0.919 0.008 293);
+  --sidebar-ring: oklch(0.62 0.19 293);
   --font-sans:
     "Space Grotesk", "Inter", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif,
@@ -204,23 +205,18 @@
     letter-spacing: -0.012em;
   }
 
-  /* Ambient neon depth — violet + cyan, a hint of amber */
+  /* Ambient neon depth — restrained: a violet and a cyan glow */
   .dark body {
     background-image:
       radial-gradient(
-        780px 500px at 84% -12%,
-        rgba(179, 136, 255, 0.09),
-        transparent 72%
-      ),
-      radial-gradient(
-        680px 520px at -10% 108%,
-        rgba(103, 240, 255, 0.07),
-        transparent 72%
-      ),
-      radial-gradient(
-        520px 380px at 50% 116%,
-        rgba(255, 204, 103, 0.035),
+        720px 480px at 88% -14%,
+        rgba(179, 136, 255, 0.07),
         transparent 70%
+      ),
+      radial-gradient(
+        640px 500px at -12% 112%,
+        rgba(103, 240, 255, 0.05),
+        transparent 72%
       );
     background-attachment: fixed;
   }
