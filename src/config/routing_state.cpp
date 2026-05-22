@@ -98,7 +98,19 @@ bool route_contains_ip(const DumpedRoute& route, const std::string& ip) {
     }
 
     const std::string network = route.destination.substr(0, slash);
-    const int prefix_len = std::stoi(route.destination.substr(slash + 1));
+    int prefix_len = 0;
+    try {
+        prefix_len = std::stoi(route.destination.substr(slash + 1));
+    } catch (const std::exception&) {
+        // Malformed prefix length in a route destination: treat the route as
+        // not covering the address rather than letting the exception escape.
+        return false;
+    }
+    if (prefix_len < 0 || prefix_len > 128) {
+        // Out-of-range prefix; reject before it can drive an out-of-bounds
+        // read in the IPv6 prefix comparison below.
+        return false;
+    }
     const int family = (ip.find(':') != std::string::npos) ? AF_INET6 : AF_INET;
     const int network_family = (network.find(':') != std::string::npos) ? AF_INET6 : AF_INET;
     if (family != network_family) {

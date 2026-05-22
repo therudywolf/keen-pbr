@@ -182,12 +182,20 @@ void Scheduler::cancel_all() {
 }
 
 void Scheduler::remove_entry(int timer_fd) {
+    bool removed = false;
     {
         KPBR_LOCK_GUARD(entries_mutex_);
+        const size_t before = entries_.size();
         entries_.erase(
             std::remove_if(entries_.begin(), entries_.end(),
                            [timer_fd](const TimerEntry& e) { return e.timer_fd == timer_fd; }),
             entries_.end());
+        removed = entries_.size() != before;
+    }
+    if (!removed) {
+        // cancel()/cancel_all() already removed and closed this timer. Closing
+        // it again here could land on an unrelated recycled fd.
+        return;
     }
     daemon_.remove_fd(timer_fd, true, "scheduler-remove-fd");
     close(timer_fd);
