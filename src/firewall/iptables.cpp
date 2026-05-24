@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <string>
 #include <sys/socket.h>
 
@@ -169,6 +170,11 @@ std::string IptablesFirewall::build_ipset_create_line(const PendingSet& ps) {
         return keen_pbr3::format("create {} hash:net family {} -exist\n",
                                  ps.name, ps.family_str);
     }
+}
+
+bool IptablesFirewall::ipv6_backend_available() const {
+    return safe_exec({"ip6tables", "-t", "mangle", "-L"}, /*suppress_output=*/true) == 0
+        && safe_exec({"which", "ip6tables-restore"}, /*suppress_output=*/true) == 0;
 }
 
 std::string IptablesFirewall::build_list_set_lines(const PendingListSet& pls) {
@@ -472,6 +478,13 @@ std::string IptablesFirewall::build_ipt_script(bool ipv6,
 }
 
 void IptablesFirewall::apply(FirewallApplyMode mode) {
+    bool effective_ipv6 = ipv6_enabled();
+    if (effective_ipv6 && !ipv6_backend_available()) {
+        Logger::instance().error(
+            "IPv6 iptables backend is unavailable; skipping IPv6 firewall state and continuing IPv4-only");
+        effective_ipv6 = false;
+    }
+
     if (mode == FirewallApplyMode::Destructive) {
         cleanup_live_impl();
     } else {
@@ -490,7 +503,12 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
         std::string ipset_script;
         // Per-list hash:net sets first — a list:set may only reference sets
         // that already exist.
+        std::set<std::string> disabled_ipv6_sets;
         for (const auto& ps : pending_sets_) {
+            if (ps.family_str == "inet6" && !effective_ipv6) {
+                disabled_ipv6_sets.insert(ps.name);
+                continue;
+            }
             ipset_script += build_ipset_create_line(ps);
         }
         // Consolidated list:set sets, created after their member sets.
@@ -499,6 +517,9 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
             created_list_sets_.push_back(pls.name);
         }
         for (auto& [set_name, buf] : pending_elements_) {
+            if (disabled_ipv6_sets.find(set_name) != disabled_ipv6_sets.end()) {
+                continue;
+            }
             std::string elements = buf.str();
             if (!elements.empty()) {
                 ipset_script += elements;
@@ -518,13 +539,17 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
     // mangle table changed under us (NDM rebuilds it on network events and
     // does not keep keen-pbr's rules), so re-asserting the rules is the whole
     // point. The iptables-restore script flushes and rebuilds the KeenPbrTable
-    // chain, so it is idempotent and safe to run unconditionally.
+    // chain, so it is idempotent and safe to run unconditionally. When ipv6
+    // support is disabled (or unavailable), skip the v6 restore so we do not
+    // assert chains in an unused table.
     pipe_to_cmd({"iptables-restore", "--noflush", "--counters"},
                 build_ipt_script(false, pending_rules_, global_prefilter_));
     chain_v4_created_ = true;
-    pipe_to_cmd({"ip6tables-restore", "--noflush", "--counters"},
-                build_ipt_script(true, pending_rules_, global_prefilter_));
-    chain_v6_created_ = true;
+    if (effective_ipv6) {
+        pipe_to_cmd({"ip6tables-restore", "--noflush", "--counters"},
+                    build_ipt_script(true, pending_rules_, global_prefilter_));
+        chain_v6_created_ = true;
+    }
 
     // Clear pending buffers
     pending_sets_.clear();
