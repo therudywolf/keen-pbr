@@ -4,6 +4,7 @@
 #include "port_spec_util.hpp"
 #include "../log/logger.hpp"
 #include "../util/format_compat.hpp"
+#include "../util/ipv6_support.hpp"
 #include "../util/safe_exec.hpp"
 
 #include <algorithm>
@@ -173,8 +174,7 @@ std::string IptablesFirewall::build_ipset_create_line(const PendingSet& ps) {
 }
 
 bool IptablesFirewall::ipv6_backend_available() const {
-    return safe_exec({"ip6tables", "-t", "mangle", "-L"}, /*suppress_output=*/true) == 0
-        && safe_exec({"which", "ip6tables-restore"}, /*suppress_output=*/true) == 0;
+    return iptables_ipv6_supported();
 }
 
 std::string IptablesFirewall::build_list_set_lines(const PendingListSet& pls) {
