@@ -1,5 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
+import {
+  ArrowRight,
+  ExternalLink,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react"
+import type { ReactNode } from "react"
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -8,6 +16,8 @@ import { useLocation } from "wouter"
 import type { ApiError } from "@/api/client"
 import type { ConfigObject } from "@/api/generated/model/configObject"
 import type { ConfigStateResponseListRefreshState } from "@/api/generated/model/configStateResponseListRefreshState"
+import type { DnsRule } from "@/api/generated/model/dnsRule"
+import type { RouteRule } from "@/api/generated/model/routeRule"
 import { usePostConfigMutation, usePostListsRefreshMutation, useConfigMutationPending } from "@/api/mutations"
 import { queryKeys } from "@/api/query-keys"
 import { useGetConfig } from "@/api/queries"
@@ -20,6 +30,10 @@ import { ActionButtons } from "@/components/shared/action-buttons"
 import { BulkSelectionToolbar } from "@/components/shared/bulk-selection-toolbar"
 import { ConfigSaveErrorAlert } from "@/components/shared/config-save-error-alert"
 import { DataTable, type DataTableSelection } from "@/components/shared/data-table"
+import {
+  DeleteImpactDialog,
+  type DeleteImpactItem,
+} from "@/components/shared/delete-impact-dialog"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatsDisplay } from "@/components/shared/stats-display"
@@ -27,6 +41,11 @@ import { TableSkeleton } from "@/components/shared/table-skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getApiErrorMessage } from "@/lib/api-errors"
+import {
+  buildUpdatedConfigForListsDelete,
+  getListDeleteImpact,
+  type ListDeleteImpact,
+} from "@/pages/lists-utils"
 
 type ListDraft = {
   name: string
@@ -94,6 +113,14 @@ export function ListsPage() {
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(
     () => new Set(),
   )
+  const [deleteRequest, setDeleteRequest] = useState<{
+    ids: string[]
+    impact: ListDeleteImpact
+    config: ConfigObject
+    clearSelectionOnSuccess: boolean
+  } | null>(null)
+  const [deletePreview, setDeletePreview] = useState<typeof deleteRequest>(null)
+  const visibleDeleteRequest = deleteRequest ?? deletePreview
 
   const listRefreshMutation = usePostListsRefreshMutation({
     mutation: {
@@ -175,18 +202,14 @@ export function ListsPage() {
       return
     }
 
-    const nextConfig = buildUpdatedConfigForListDelete(loadedConfig, listId)
-    const refsChange = listDeletesAltersRoutingOrDnsRefs(loadedConfig, nextConfig)
-
-    const deletePrompt = refsChange
-      ? t("pages.lists.delete.confirmWithReferences", { name: listId })
-      : t("pages.lists.delete.confirm", { name: listId })
-
-    if (!window.confirm(deletePrompt)) {
-      return
+    const request = {
+      ids: [listId],
+      impact: getListDeleteImpact(loadedConfig, [listId]),
+      config: loadedConfig,
+      clearSelectionOnSuccess: false,
     }
-
-    postConfigMutation.mutate({ data: nextConfig })
+    setDeletePreview(request)
+    setDeleteRequest(request)
   }
 
   const handleRefreshAll = () => {
@@ -248,29 +271,29 @@ export function ListsPage() {
     }
 
     const ids = [...selectedListIdsResolved]
-    const nextConfig = buildUpdatedConfigForListsDelete(loadedConfig, ids)
-    const refsChange = listDeletesAltersRoutingOrDnsRefs(loadedConfig, nextConfig)
+    const request = {
+      ids,
+      impact: getListDeleteImpact(loadedConfig, ids),
+      config: loadedConfig,
+      clearSelectionOnSuccess: true,
+    }
+    setDeletePreview(request)
+    setDeleteRequest(request)
+  }
 
-    const namesLabel = ids.join(", ")
-    const confirmed = window.confirm(
-      refsChange
-        ? t("pages.lists.bulk.confirmDeleteWithRefs", {
-            names: namesLabel,
-          })
-        : t("pages.lists.bulk.confirmDeleteSimple", {
-            names: namesLabel,
-          }),
-    )
-
-    if (!confirmed) {
+  const confirmDelete = () => {
+    if (!loadedConfig || !deleteRequest) {
       return
     }
 
     postConfigMutation.mutate(
-      { data: nextConfig },
+      { data: buildUpdatedConfigForListsDelete(loadedConfig, deleteRequest.ids) },
       {
         onSuccess: () => {
-          setSelectedListIds(new Set())
+          if (deleteRequest.clearSelectionOnSuccess) {
+            setSelectedListIds(new Set())
+          }
+          setDeleteRequest(null)
         },
       },
     )
@@ -508,6 +531,31 @@ export function ListsPage() {
           />
         </div>
       )}
+      <DeleteImpactDialog
+        confirmLabel={t("pages.lists.deleteDialog.confirm")}
+        description={t("pages.lists.deleteDialog.description", {
+          names: visibleDeleteRequest?.ids.join(", ") ?? "",
+        })}
+        impactItems={
+          visibleDeleteRequest
+            ? getListDeleteImpactItems(
+                visibleDeleteRequest.config,
+                visibleDeleteRequest.ids,
+                visibleDeleteRequest.impact,
+                t,
+              )
+            : []
+        }
+        isPending={postConfigMutation.isPending}
+        onConfirm={confirmDelete}
+        onOpenChange={(open) => {
+          if (!open && !postConfigMutation.isPending) {
+            setDeleteRequest(null)
+          }
+        }}
+        open={deleteRequest !== null}
+        title={t("pages.lists.deleteDialog.title")}
+      />
     </div>
   )
 }
@@ -566,59 +614,202 @@ function getTableRowsFromListMap(
   })
 }
 
-function buildUpdatedConfigForListsDelete(
-  config: ConfigObject,
+function getListDeleteImpactItems(
+  config: ConfigObject | undefined,
   listIds: string[],
-): ConfigObject {
-  return listIds.reduce(
-    (acc, id) => buildUpdatedConfigForListDelete(acc, id),
-    config,
-  )
-}
+  impact: ListDeleteImpact,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  const items: DeleteImpactItem[] = []
+  const deletedListIds = new Set(listIds)
 
-function listDeletesAltersRoutingOrDnsRefs(
-  before: ConfigObject,
-  after: ConfigObject,
-): boolean {
-  return (
-    JSON.stringify(before.route?.rules ?? []) !==
-      JSON.stringify(after.route?.rules ?? []) ||
-    JSON.stringify(before.dns?.rules ?? []) !==
-      JSON.stringify(after.dns?.rules ?? [])
-  )
-}
-
-function buildUpdatedConfigForListDelete(
-  config: ConfigObject,
-  listId: string
-): ConfigObject {
-  const nextLists = { ...(config.lists ?? {}) }
-  delete nextLists[listId]
-
-  return {
-    ...config,
-    lists: nextLists,
-    route: {
-      ...config.route,
-      rules: (config.route?.rules ?? [])
-        .map((rule) => ({
-          ...rule,
-          list: (rule.list ?? []).filter((name) => name !== listId),
-        }))
-        .filter((rule) => rule.list.length > 0),
-    },
-    dns: {
-      ...config.dns,
-      rules: (config.dns?.rules ?? [])
-        .map((rule) => ({
-          ...rule,
-          list: rule.list.filter((name) => name !== listId),
-        }))
-        .filter((rule) => rule.list.length > 0),
-    },
+  for (const listId of listIds) {
+    items.push({
+      label: (
+        <>
+          {t("pages.lists.deleteDialog.items.listPrefix")}{" "}
+          <strong className="font-mono">{listId}</strong>{" "}
+          {t("pages.lists.deleteDialog.items.listSuffix")}
+        </>
+      ),
+    })
   }
+
+  for (const index of impact.removedRouteRuleIndexes) {
+    const rule = config?.route?.rules?.[index]
+    items.push({
+      label: t("pages.lists.deleteDialog.items.routeRuleRemoved", {
+        number: index + 1,
+      }),
+      details: getRouteRuleDetails(rule, deletedListIds, true, t),
+    })
+  }
+
+  for (const index of impact.routeRuleIndexes) {
+    if (impact.removedRouteRuleIndexes.includes(index)) {
+      continue
+    }
+    const rule = config?.route?.rules?.[index]
+    items.push({
+      label: t("pages.lists.deleteDialog.items.routeRuleUpdated", {
+        number: index + 1,
+      }),
+      details: getRouteRuleDetails(rule, deletedListIds, false, t),
+    })
+  }
+
+  for (const index of impact.removedDnsRuleIndexes) {
+    const rule = config?.dns?.rules?.[index]
+    items.push({
+      label: t("pages.lists.deleteDialog.items.dnsRuleRemoved", {
+        number: index + 1,
+      }),
+      details: getDnsRuleDetails(rule, deletedListIds, true, t),
+    })
+  }
+
+  for (const index of impact.dnsRuleIndexes) {
+    if (impact.removedDnsRuleIndexes.includes(index)) {
+      continue
+    }
+    const rule = config?.dns?.rules?.[index]
+    items.push({
+      label: t("pages.lists.deleteDialog.items.dnsRuleUpdated", {
+        number: index + 1,
+      }),
+      details: getDnsRuleDetails(rule, deletedListIds, false, t),
+    })
+  }
+
+  return items
 }
 
+function getRouteRuleDetails(
+  rule: RouteRule | undefined,
+  deletedListIds: ReadonlySet<string>,
+  isRemoved: boolean,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  if (!rule) {
+    return []
+  }
+
+  const beforeLists = rule.list ?? []
+  const afterLists = beforeLists.filter((name) => !deletedListIds.has(name))
+  const details: ReactNode[] = []
+
+  if (beforeLists.length > 0) {
+    details.push(
+      formatDetail(
+        t("pages.routingRules.criteriaLabels.lists"),
+        isRemoved
+          ? formatListValue(beforeLists, t)
+          : formatTransition(beforeLists, afterLists, t),
+      ),
+    )
+  }
+
+  appendOptionalDetail(
+    details,
+    t("pages.routingRules.criteriaLabels.proto"),
+    rule.proto,
+  )
+  appendOptionalDetail(
+    details,
+    t("pages.routingRules.criteriaLabels.sourceIp"),
+    rule.src_addr,
+  )
+  appendOptionalDetail(
+    details,
+    t("pages.routingRules.criteriaLabels.destinationIp"),
+    rule.dest_addr,
+  )
+  appendOptionalDetail(
+    details,
+    t("pages.routingRules.criteriaLabels.sourcePort"),
+    rule.src_port,
+  )
+  appendOptionalDetail(
+    details,
+    t("pages.routingRules.criteriaLabels.destinationPort"),
+    rule.dest_port,
+  )
+
+  return details
+}
+
+function getDnsRuleDetails(
+  rule: DnsRule | undefined,
+  deletedListIds: ReadonlySet<string>,
+  isRemoved: boolean,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  if (!rule) {
+    return []
+  }
+
+  const afterLists = rule.list.filter((name) => !deletedListIds.has(name))
+
+  return [
+    formatDetail(
+      t("pages.dnsRules.criteriaLabels.lists"),
+      isRemoved
+        ? formatListValue(rule.list, t)
+        : formatTransition(rule.list, afterLists, t),
+    ),
+    formatDetail(t("pages.dnsRules.headers.serverTag"), rule.server),
+  ]
+}
+
+function appendOptionalDetail(
+  details: ReactNode[],
+  label: string,
+  value: string | undefined,
+) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return
+  }
+
+  details.push(formatDetail(label, value))
+}
+
+function formatDetail(label: string, value: ReactNode) {
+  return (
+    <>
+      {label}: {value}
+    </>
+  )
+}
+
+function formatTransition(
+  before: string[],
+  after: string[],
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  return (
+    <ChangeValue
+      after={formatListValue(after, t)}
+      before={formatListValue(before, t)}
+    />
+  )
+}
+
+function ChangeValue({ after, before }: { after: string; before: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-4">
+      <span className="min-w-0 truncate">{before}</span>
+      <ArrowRight className="mt-px size-3 shrink-0 text-primary" />
+      <span className="min-w-0 truncate">{after}</span>
+    </span>
+  )
+}
+
+function formatListValue(
+  values: string[],
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  return values.length > 0 ? values.join(", ") : t("common.noneShort")
+}
 
 function getListSourceLabel(
   draft: ListDraft,

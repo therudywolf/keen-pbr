@@ -1,10 +1,12 @@
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { ArrowRight, Pencil, Plus, Trash2 } from "lucide-react"
+import type { ReactNode } from "react"
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useLocation } from "wouter"
 
 import type { getConfigResponse } from "@/api/generated/keen-api"
 import type { ConfigObject } from "@/api/generated/model/configObject"
+import type { DnsRule } from "@/api/generated/model/dnsRule"
 import { DnsServerType } from "@/api/generated/model/dnsServerType"
 import { usePostConfigMutation, useConfigMutationPending } from "@/api/mutations"
 import { useGetConfig } from "@/api/queries"
@@ -12,11 +14,20 @@ import { ActionButtons } from "@/components/shared/action-buttons"
 import { BulkSelectionToolbar } from "@/components/shared/bulk-selection-toolbar"
 import { ConfigSaveErrorAlert } from "@/components/shared/config-save-error-alert"
 import { DataTable, type DataTableSelection } from "@/components/shared/data-table"
+import {
+  DeleteImpactDialog,
+  type DeleteImpactItem,
+} from "@/components/shared/delete-impact-dialog"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { PageHeader } from "@/components/shared/page-header"
 import { TableSkeleton } from "@/components/shared/table-skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  buildUpdatedConfigForDnsServersDelete,
+  getDnsServerDeleteImpact,
+  type DnsServerDeleteImpact,
+} from "@/pages/dns-servers-utils"
 
 export function DnsServersPage() {
   const { t } = useTranslation()
@@ -33,6 +44,14 @@ export function DnsServersPage() {
   const [selectedDnsServerTags, setSelectedDnsServerTags] = useState<Set<string>>(
     () => new Set(),
   )
+  const [deleteRequest, setDeleteRequest] = useState<{
+    tags: string[]
+    impact: DnsServerDeleteImpact
+    config: ConfigObject
+    clearSelectionOnSuccess: boolean
+  } | null>(null)
+  const [deletePreview, setDeletePreview] = useState<typeof deleteRequest>(null)
+  const visibleDeleteRequest = deleteRequest ?? deletePreview
 
   const validDnsServerTagSet = useMemo(
     () => new Set(dnsServers.map((server) => server.tag)),
@@ -82,53 +101,15 @@ export function DnsServersPage() {
       return
     }
 
-    const dnsConfig = config.dns
-    const allRules = dnsConfig?.rules ?? []
-    const fallbackServers = dnsConfig?.fallback ?? []
-    const selectedTagsArray = [...selectedDnsServerTagsResolved]
-    const tagSet = new Set(selectedDnsServerTagsResolved)
-
-    const matchingRulesCount = allRules.filter((rule) =>
-      selectedTagsArray.includes(rule.server),
-    ).length
-    const usesFallback = fallbackServers.some((tag) => tagSet.has(tag))
-
-    let stripReferencesFromConfig = !(matchingRulesCount > 0 || usesFallback)
-
-    if (matchingRulesCount > 0 || usesFallback) {
-      stripReferencesFromConfig = window.confirm(
-        t("pages.dnsServers.bulk.confirmDelete", {
-          tags: selectedTagsArray.join(", "),
-        }),
-      )
-
-      if (!stripReferencesFromConfig) {
-        return
-      }
+    const selectedTags = [...selectedDnsServerTagsResolved]
+    const request = {
+      tags: selectedTags,
+      impact: getDnsServerDeleteImpact(config, selectedTags),
+      config,
+      clearSelectionOnSuccess: true,
     }
-
-    const updatedConfig = {
-      ...config,
-      dns: {
-        ...(dnsConfig ?? {}),
-        servers: dnsServers.filter((server) => !tagSet.has(server.tag)),
-        rules: stripReferencesFromConfig
-          ? allRules.filter((rule) => !tagSet.has(rule.server))
-          : allRules,
-        fallback: stripReferencesFromConfig
-          ? fallbackServers.filter((tag) => !tagSet.has(tag))
-          : fallbackServers,
-      },
-    } satisfies ConfigObject
-
-    postConfigMutation.mutate(
-      { data: updatedConfig },
-      {
-        onSuccess: () => {
-          setSelectedDnsServerTags(new Set())
-        },
-      },
-    )
+    setDeletePreview(request)
+    setDeleteRequest(request)
   }
 
   const deleteServer = (serverTag: string) => {
@@ -136,49 +117,38 @@ export function DnsServersPage() {
       return
     }
 
-    const dnsConfig = config.dns
-    const allRules = dnsConfig?.rules ?? []
-    const matchingRules = allRules.filter((rule) => rule.server === serverTag)
-    const fallbackServers = dnsConfig?.fallback ?? []
-    const usesFallback = fallbackServers.includes(serverTag)
+    const request = {
+      tags: [serverTag],
+      impact: getDnsServerDeleteImpact(config, [serverTag]),
+      config,
+      clearSelectionOnSuccess: false,
+    }
+    setDeletePreview(request)
+    setDeleteRequest(request)
+  }
 
-    let shouldCleanupReferences = false
-    if (matchingRules.length > 0 || usesFallback) {
-      shouldCleanupReferences = window.confirm(
-        t("pages.dnsServers.delete.confirmWithReferences", {
-          count: matchingRules.length,
-          fallbackSuffix: usesFallback
-            ? t("pages.dnsServers.delete.fallbackSuffix")
-            : "",
-          serverTag,
-        })
-      )
-
-      if (!shouldCleanupReferences) {
-        return
-      }
+  const confirmDelete = () => {
+    if (!config || !deleteRequest) {
+      return
     }
 
-    const nextServers = dnsServers.filter((server) => server.tag !== serverTag)
-    const nextRules = shouldCleanupReferences
-      ? allRules.filter((rule) => rule.server !== serverTag)
-      : allRules
-    const nextFallback =
-      shouldCleanupReferences && usesFallback
-        ? fallbackServers.filter((tag) => tag !== serverTag)
-        : fallbackServers
+    const updatedConfig = buildUpdatedConfigForDnsServersDelete(
+      config,
+      deleteRequest.tags,
+      true,
+    )
 
-    const updatedConfig = {
-      ...config,
-      dns: {
-        ...(dnsConfig ?? {}),
-        servers: nextServers,
-        rules: nextRules,
-        fallback: nextFallback,
+    postConfigMutation.mutate(
+      { data: updatedConfig },
+      {
+        onSuccess: () => {
+          if (deleteRequest.clearSelectionOnSuccess) {
+            setSelectedDnsServerTags(new Set())
+          }
+          setDeleteRequest(null)
+        },
       },
-    } satisfies ConfigObject
-
-    postConfigMutation.mutate({ data: updatedConfig })
+    )
   }
 
   return (
@@ -280,7 +250,125 @@ export function DnsServersPage() {
           />
         </div>
       )}
+      <DeleteImpactDialog
+        confirmLabel={t("pages.dnsServers.deleteDialog.confirm")}
+        description={t("pages.dnsServers.deleteDialog.description", {
+          tags: visibleDeleteRequest?.tags.join(", ") ?? "",
+        })}
+        impactItems={
+          visibleDeleteRequest
+            ? getDnsServerDeleteImpactItems(
+                visibleDeleteRequest.config,
+                visibleDeleteRequest.tags,
+                visibleDeleteRequest.impact,
+                t,
+              )
+            : []
+        }
+        isPending={postConfigMutation.isPending}
+        onConfirm={confirmDelete}
+        onOpenChange={(open) => {
+          if (!open && !postConfigMutation.isPending) {
+            setDeleteRequest(null)
+          }
+        }}
+        open={deleteRequest !== null}
+        title={t("pages.dnsServers.deleteDialog.title")}
+      />
     </div>
+  )
+}
+
+function getDnsServerDeleteImpactItems(
+  config: ConfigObject | undefined,
+  serverTags: string[],
+  impact: DnsServerDeleteImpact,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  const items: DeleteImpactItem[] = []
+
+  for (const tag of serverTags) {
+    items.push({
+      label: (
+        <>
+          {t("pages.dnsServers.deleteDialog.items.serverPrefix")}{" "}
+          <strong className="font-mono">{tag}</strong>{" "}
+          {t("pages.dnsServers.deleteDialog.items.serverSuffix")}
+        </>
+      ),
+    })
+  }
+
+  for (const index of impact.matchingRuleIndexes) {
+    items.push({
+      label: t("pages.dnsServers.deleteDialog.items.dnsRule", {
+        number: index + 1,
+      }),
+      details: getDnsRuleDetails(config?.dns?.rules?.[index], t),
+    })
+  }
+
+  if (impact.usesFallback) {
+    const fallback = config?.dns?.fallback ?? []
+    items.push({
+      label: t("pages.dnsServers.deleteDialog.items.fallback"),
+      details: [
+        formatDetail(
+          t("pages.dnsRules.fallback.title"),
+          <ChangeValue
+            after={formatListValue(
+              fallback.filter((tag) => !serverTags.includes(tag)),
+              t,
+            )}
+            before={formatListValue(fallback, t)}
+          />,
+        ),
+      ],
+    })
+  }
+
+  return items
+}
+
+function getDnsRuleDetails(
+  rule: DnsRule | undefined,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  if (!rule) {
+    return []
+  }
+
+  return [
+    formatDetail(
+      t("pages.dnsRules.criteriaLabels.lists"),
+      formatListValue(rule.list, t),
+    ),
+    formatDetail(t("pages.dnsRules.headers.serverTag"), rule.server),
+  ]
+}
+
+function formatDetail(label: string, value: ReactNode) {
+  return (
+    <>
+      {label}: {value}
+    </>
+  )
+}
+
+function formatListValue(
+  values: string[],
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  return values.length > 0 ? values.join(", ") : t("common.noneShort")
+}
+
+function ChangeValue({ after, before }: { after: string; before: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-4">
+      <span className="min-w-0 truncate">{before}</span>
+      <ArrowRight className="mt-px size-3 shrink-0 text-primary" />
+      <span className="min-w-0 truncate">{after}</span>
+    </span>
   )
 }
 

@@ -480,6 +480,18 @@ export const enTranslation = {
               'DNS server "{{serverTag}}" is currently used by {{count}} rule(s){{fallbackSuffix}}.\nDelete and automatically remove those references?',
             fallbackSuffix: " and as fallback",
           },
+          deleteDialog: {
+            title: "Delete DNS servers?",
+            description:
+              "Confirming this operation will make the following changes:",
+            confirm: "Delete",
+            items: {
+              serverPrefix: "DNS server",
+              serverSuffix: "will be deleted.",
+              dnsRule: "DNS rule #{{number}} will be deleted.",
+              fallback: "Fallback DNS will be changed.",
+            },
+          },
           bulk: {
             selected: "{{count}} selected",
             delete: "Delete selected",
@@ -649,6 +661,26 @@ export const enTranslation = {
             selected: "{{count}} selected",
             delete: "Delete selected",
             confirmDelete: "Delete {{count}} outbound(s)? Dependencies are not validated until save.",
+          },
+          deleteDialog: {
+            title: "Delete outbounds?",
+            description:
+              "Confirming this operation will make the following changes:",
+            confirm: "Delete",
+            items: {
+              outboundPrefix: "Outbound",
+              outboundSuffix: "will be deleted.",
+              dependentOutboundPrefix: "Dependent urltest outbound",
+              dependentOutboundSuffix: "will be deleted.",
+              routingRule: "Routing rule #{{number}} will be removed.",
+              ruleDetail: "{{label}}: {{value}}",
+              dnsDetour: 'DNS server "{{server}}" will be changed.',
+              urltestGroupChanged:
+                'Group #{{group}} in urltest outbound "{{outbound}}" will be changed.',
+              urltestGroupRemoved:
+                'Group #{{group}} in urltest outbound "{{outbound}}" will be deleted.',
+              groupOutbounds: "Outbounds",
+            },
           },
           description: "Your configured outbounds and urltest groups.",
           actions: { new: "Add outbound" },
@@ -922,6 +954,20 @@ export const enTranslation = {
             confirm: 'Delete list "{{name}}"?',
             confirmWithReferences:
               'Delete list "{{name}}" and remove its references from routing and DNS rules?',
+          },
+          deleteDialog: {
+            title: "Delete lists?",
+            description:
+              "Confirming this operation will make the following changes:",
+            confirm: "Delete",
+            items: {
+              listPrefix: "List",
+              listSuffix: "will be deleted.",
+              routeRuleRemoved: "Routing rule #{{number}} will be deleted.",
+              routeRuleUpdated: "Routing rule #{{number}} will be changed.",
+              dnsRuleRemoved: "DNS rule #{{number}} will be deleted.",
+              dnsRuleUpdated: "DNS rule #{{number}} will be changed.",
+            },
           },
           location: {
             inline: "Inline",
