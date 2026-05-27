@@ -1082,7 +1082,6 @@ TEST_CASE("daemon.skip_marked_packets: rejects non-boolean value") {
     CHECK(issues[0].path == "daemon.skip_marked_packets");
 }
 
-<<<<<<< HEAD
 // =============================================================================
 // Cross-reference validation: route rules, DNS rules, outbounds
 // =============================================================================
