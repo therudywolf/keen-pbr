@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* FOR3ST — light theme · cyberpunk-terminal identity (cyan · crimson · amber · green) */
+  /* Forest-PBR — light theme · cyberpunk-terminal identity (cyan · crimson · amber · green) */
   --background: #f4f4f6;
   --foreground: #14131a;
   --card: #ffffff;
@@ -72,7 +72,7 @@
   --shadow-2xl: 0 1px 4.5px 0px hsl(213.75 37.5% 25.098% / 0.35);
 }
 
-/* FOR3ST — cyberpunk-terminal dark theme · cyan · crimson · amber · green */
+/* Forest-PBR — cyberpunk-terminal dark theme · cyan · crimson · amber · green */
 .dark {
   --background: #08070b;
   --foreground: #e7e7ea;
@@ -192,7 +192,7 @@
   }
 }
 
-/* ── FOR3ST — cyberpunk-terminal polish ──────────────────────────────── */
+/* ── Forest-PBR — cyberpunk-terminal polish ──────────────────────────────── */
 @layer base {
   ::selection {
     background: rgba(86, 215, 240, 0.3);

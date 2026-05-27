@@ -116,7 +116,7 @@ export const ruTranslation = {
         },
       },
       brand: {
-        logoAlt: "логотип FOR3ST",
+        logoAlt: "логотип Forest-PBR",
         tagline: "ядро keen-pbr · маршрутизация ⌁",
         openMenu: "Открыть меню",
       },

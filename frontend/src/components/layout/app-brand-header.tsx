@@ -38,7 +38,7 @@ export function AppBrandHeader({
       </div>
       <div className="grid min-w-0 flex-1 text-left leading-tight">
         <span className="truncate font-mono text-base font-semibold tracking-tight">
-          FOR3ST<span className="text-primary"> // premium</span>
+          Forest-<span className="text-primary">PBR</span>
         </span>
         <span className="truncate font-mono text-[11px] text-muted-foreground">
           {t("brand.tagline")}

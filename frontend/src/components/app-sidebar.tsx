@@ -87,7 +87,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
           <LanguageSelector />
           <ThemeSelector />
           <div className="px-1 pt-1 font-mono text-[10px] leading-relaxed text-muted-foreground/70">
-            FOR3ST <span className="text-primary/80">// premium</span>
+            Forest-<span className="text-primary/80">PBR</span>
             <br />
             keen-pbr core · GPLv3 ⌁
           </div>
