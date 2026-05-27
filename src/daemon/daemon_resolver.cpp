@@ -312,10 +312,14 @@ void Daemon::refresh_resolver_config_hash_actual_async() {
                                      resolver_addr,
                                      generation);
             try {
+                // 5s timeout: dnsmasq on a weak Keenetic CPU can stall briefly
+                // under load (especially right after a config reload). The
+                // previous 2s timeout produced recurring "DNS TXT query failed"
+                // log noise even when the resolver was fine.
                 probe_result = query_resolver_config_hash_txt(
                     resolver_addr,
                     "config-hash.keen.pbr",
-                    std::chrono::milliseconds(2000));
+                    std::chrono::milliseconds(5000));
                 probe_completed_ts = unix_timestamp_now_seconds();
             } catch (const std::exception& e) {
                 ResolverConfigHashProbeResult failed_result;
