@@ -5,7 +5,6 @@ import { useLocation } from "wouter"
 import { useForm } from "@tanstack/react-form"
 import { useQueryClient } from "@tanstack/react-query"
 import { useStore } from "@tanstack/react-store"
-import { useMemo } from "react"
 
 import type { ApiError } from "@/api/client"
 import type { ConfigObject } from "@/api/generated/model/configObject"
@@ -26,6 +25,7 @@ import { ServerValidationAlert } from "@/components/shared/server-validation-ale
 import { UpsertPage } from "@/components/shared/upsert-page"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useListUsageSubtitle } from "@/hooks/use-list-usage-subtitle"
 import {
   clearFormServerErrors,
   setFormServerErrors,
@@ -41,9 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  buildListUsageByDnsRules,
   buildUpdatedConfigWithRules,
-  formatDnsListRefsUsageSummary,
   getRuleDraft,
   validateRules,
 } from "@/pages/dns-rules-utils"
@@ -156,14 +154,10 @@ function DnsRuleForm({
     label: serverTag,
   }))
   const listOptions = Object.keys(loadedConfig.lists ?? {})
-  const dnsRuleDrafts = useMemo(() => rules.map((rule) => getRuleDraft(rule)), [rules])
-  const dnsListUsageByName = useMemo(
-    () =>
-      buildListUsageByDnsRules(
-        dnsRuleDrafts,
-        mode === "edit" ? parsedRuleIndex : undefined,
-      ),
-    [dnsRuleDrafts, mode, parsedRuleIndex],
+  const listUsageSubtitle = useListUsageSubtitle(
+    rules,
+    "dns",
+    mode === "edit" ? parsedRuleIndex : undefined,
   )
   const postConfigMutation = usePostConfigMutation()
   const form = useForm({
@@ -386,15 +380,7 @@ function DnsRuleForm({
                       placeholderTitle={t(
                         "pages.dnsRuleUpsert.fields.noListsSelected"
                       )}
-                      usageSubtitle={(optionName) => {
-                        const refs = dnsListUsageByName.get(optionName)
-                        if (!refs?.length) {
-                          return undefined
-                        }
-                        return t("pages.dnsRuleUpsert.fields.listUsedElsewhere", {
-                          summary: formatDnsListRefsUsageSummary(refs),
-                        })
-                      }}
+                      usageSubtitle={listUsageSubtitle}
                       value={field.state.value}
                     />
                     <FieldHint

@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { useLocation } from "wouter"
 
@@ -27,6 +26,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { useListUsageSubtitle } from "@/hooks/use-list-usage-subtitle"
 import {
   clearFormServerErrors,
   setFormServerErrors,
@@ -42,9 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  buildListUsageByRouteRules,
   emptyRouteRuleDraft,
-  formatRoutingListRefsUsageSummary,
   getFirstFieldError,
   normalizeRouteRuleDraft,
   protoOptions,
@@ -163,13 +161,10 @@ function RoutingRuleForm({
     .sort((left: Outbound, right: Outbound) =>
       left.tag.localeCompare(right.tag),
     )
-  const routingListUsageByName = useMemo(
-    () =>
-      buildListUsageByRouteRules(
-        rules,
-        mode === "edit" ? parsedRuleIndex : undefined,
-      ),
-    [rules, mode, parsedRuleIndex],
+  const listUsageSubtitle = useListUsageSubtitle(
+    rules,
+    "routing",
+    mode === "edit" ? parsedRuleIndex : undefined,
   )
   const protoSelectItems = protoOptions.map((option) => ({
     value: option,
@@ -333,19 +328,7 @@ function RoutingRuleForm({
                       placeholderTitle={t(
                         "pages.routingRuleUpsert.fields.noListsSelected"
                       )}
-                      usageSubtitle={(optionName) => {
-                        const refs = routingListUsageByName.get(optionName)
-                        if (!refs?.length) {
-                          return undefined
-                        }
-
-                        return t(
-                          "pages.routingRuleUpsert.fields.listUsedElsewhere",
-                          {
-                            summary: formatRoutingListRefsUsageSummary(refs),
-                          },
-                        )
-                      }}
+                      usageSubtitle={listUsageSubtitle}
                       value={field.state.value}
                     />
                     <FieldHint

@@ -22,6 +22,9 @@ export const enTranslation = {
           countSingular: "1 list",
           allLists: "All {{count}} lists",
         },
+        listUsage: {
+          usedElsewhere: "Also in: {{summary}}",
+        },
         statsDisplay: {
           tooltip:
             "{{total}} total entries · {{ipv4}} IPv4 · {{ipv6}} IPv6",

@@ -22,6 +22,9 @@ export const ruTranslation = {
           countSingular: "1 список",
           allLists: "Все списки ({{count}})",
         },
+        listUsage: {
+          usedElsewhere: "Используется также в: {{summary}}",
+        },
         statsDisplay: {
           tooltip:
             "Всего записей: {{total}} · IPv4: {{ipv4}} · IPv6: {{ipv6}}",
