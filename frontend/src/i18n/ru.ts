@@ -60,7 +60,7 @@ export const ruTranslation = {
         notFound: {
           title: "Страница не найдена",
           description:
-            "Этот адрес не относится к экранам веб-интерфейса keen-pbr. Проверьте ссылку или откройте раздел через меню слева.",
+            "Этот адрес не относится к экранам веб-интерфейса Forest-PBR. Проверьте ссылку или откройте раздел через меню слева.",
           goBack: "Назад",
           goHome: "На дашборд",
         },
@@ -134,10 +134,10 @@ export const ruTranslation = {
         compact: {
           keenRestartRequired: "Несохранённые изменения",
           keenRestartRequiredDescription:
-            "Настройки изменены. Примените их для перезапуска keen-pbr.",
+            "Настройки изменены. Примените их для перезапуска Forest-PBR.",
           keenAndDnsmasqRestartRequired: "Конфигурация устарела",
           keenAndDnsmasqRestartRequiredDescription:
-            "Примените настройки, чтобы синхронизировать keen-pbr и dnsmasq.",
+            "Примените настройки, чтобы синхронизировать Forest-PBR и dnsmasq.",
           dnsmasqRestartRequired: "Конфигурация DNS-сервера устарела",
           dnsmasqRestartRequiredDescription:
             "dnsmasq использует устаревший конфиг. Требуется перезапуск.",
@@ -146,7 +146,7 @@ export const ruTranslation = {
             "DNS-сервер перезапускается, подождите немного.",
           dnsmasqUnavailable: "dnsmasq недоступен",
           dnsmasqUnavailableDescription:
-            "dnsmasq не отвечает. Из-за этого могут быть проблемы с интернетом. Попробуйте Применить и перезапустить, либо отключите keen-pbr, чтобы восстановить доступ к сети.",
+            "dnsmasq не отвечает. Из-за этого могут быть проблемы с интернетом. Попробуйте Применить и перезапустить, либо отключите Forest-PBR, чтобы восстановить доступ к сети.",
           staleAfterTimeout:
             "dnsmasq в последний раз перезагружался: {{actualTs}}. Если статус не меняется, перезапустите маршрутизацию.",
         },
@@ -316,7 +316,7 @@ export const ruTranslation = {
           card: {
             title: "Проверка DNS",
             description:
-              "Проверяет, что DNS-разрешение через keen-pbr работает корректно - из этого браузера или с другого устройства.",
+              "Проверяет, что DNS-разрешение через Forest-PBR работает корректно - из этого браузера или с другого устройства.",
             disabledDescription:
               "Включите опцию `dns.dns_test_server` в конфигурационном файле, чтобы включить самопроверку DNS.",
             configuredServers: "Настроенные DNS-серверы",

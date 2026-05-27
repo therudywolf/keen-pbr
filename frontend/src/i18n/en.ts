@@ -59,7 +59,7 @@ export const enTranslation = {
         notFound: {
           title: "Page not found",
           description:
-            "This address is not a screen in the keen-pbr web UI. Check the link or use the sidebar to open a section.",
+            "This address is not a screen in the Forest-PBR web UI. Check the link or use the sidebar to open a section.",
           goBack: "Go back",
           goHome: "Go to dashboard",
         },
@@ -132,10 +132,10 @@ export const enTranslation = {
         compact: {
           keenRestartRequired: "Pending changes",
           keenRestartRequiredDescription:
-            "New settings found. Apply to restart keen-pbr.",
+            "New settings found. Apply to restart Forest-PBR.",
           keenAndDnsmasqRestartRequired: "Out of sync",
           keenAndDnsmasqRestartRequiredDescription:
-            "Apply changes to sync keen-pbr and dnsmasq.",
+            "Apply changes to sync Forest-PBR and dnsmasq.",
           dnsmasqRestartRequired: "DNS-server config is outdated",
           dnsmasqRestartRequiredDescription:
             "dnsmasq needs a restart to update its resolver config.",
@@ -144,7 +144,7 @@ export const enTranslation = {
             "dnsmasq is restarting. Please wait.",
           dnsmasqUnavailable: "dnsmasq is unavailable",
           dnsmasqUnavailableDescription:
-            "dnsmasq is not responding. Internet connectivity may be affected. Try Apply & Restart, or disable keen-pbr to restore network access.",
+            "dnsmasq is not responding. Internet connectivity may be affected. Try Apply & Restart, or disable Forest-PBR to restore network access.",
           staleAfterTimeout:
             "dnsmasq last reloaded at {{actualTs}}. Restart routing runtime if this stays stale.",
         },
@@ -311,7 +311,7 @@ export const enTranslation = {
           card: {
             title: "DNS check",
             description:
-              "Verifies that DNS resolution through keen-pbr is working correctly from this browser or another device.",
+              "Verifies that DNS resolution through Forest-PBR is working correctly from this browser or another device.",
             disabledDescription:
               "Enable `dns.dns_test_server` option in the config file to run the DNS self-check.",
             configuredServers: "Configured DNS servers",
