@@ -8,6 +8,7 @@
 #include "../log/logger.hpp"
 #include "../util/ipv6_support.hpp"
 #include "../util/time_utils.hpp"
+#include "resolver_health.hpp"
 #include "scheduler.hpp"
 
 #include <fmt/ranges.h>
