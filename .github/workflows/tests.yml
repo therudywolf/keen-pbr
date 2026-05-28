@@ -6,6 +6,7 @@ on:
       - 'main'
       - 'dev'
       - 'dev-*'
+      - 'forest-pbr'
     paths:
       - 'build_scripts/**'
       - 'docker/**'

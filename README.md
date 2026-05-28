@@ -25,10 +25,14 @@ cyberpunk style.
 
 - Skip redundant `dnsmasq` restarts — no DNS drops on every reload.
 - Keep Keenetic HW NAT (fastnat) disabled so marked packets reach the `mangle`
-  table instead of bypassing policy routing.
+  table instead of bypassing policy routing. The NDM netfilter hook re-asserts
+  `fastnat=0` on **every** netfilter event (mangle, nat, *and* filter), so
+  NDM can't silently flip it back during an ACL or filter-table rebuild.
 - Coalesce bursts of NDM netfilter events into a single firewall refresh.
 - Config validation no longer rejects real-world lists (CIDRs in domain lists,
   wildcards, `host:port` — the parser skips them gracefully).
+- Resolver-health TXT poll runs every 30 s (not 5 s) — keeps a weak MIPS
+  router's CPU free for actual routing work.
 
 **Web UI**
 

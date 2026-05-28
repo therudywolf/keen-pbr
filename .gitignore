@@ -15,3 +15,12 @@ _deps/
 /**/__pycache__
 cmake-build-*/
 .cache/
+
+# IDE / editor (personal config — files already tracked from upstream are
+# left alone for upstream-rebase friendliness; this only stops new ones)
+.idea/
+.vscode/
+
+# OS junk
+.DS_Store
+Thumbs.db
