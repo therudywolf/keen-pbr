@@ -18,6 +18,7 @@ add_executable(keen-pbr-tests
   test_conntrack_flush.cpp
   test_sni_parser.cpp
   test_sni_classifier.cpp
+  test_sni_router.cpp
   test_http_client.cpp
   test_config_validation.cpp
   test_list_parser.cpp
@@ -73,6 +74,7 @@ add_executable(keen-pbr-tests
   ../src/routing/conntrack_flush.cpp
   ../src/routing/sni_parser.cpp
   ../src/routing/sni_classifier.cpp
+  ../src/routing/sni_router.cpp
   ../src/util/blocking_executor.cpp
   ../src/util/firewall_backend_utils.cpp
   ../src/util/ipv6_support.cpp

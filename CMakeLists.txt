@@ -237,6 +237,7 @@ set(SOURCES
   src/routing/conntrack_flush.cpp
   src/routing/sni_parser.cpp
   src/routing/sni_classifier.cpp
+  src/routing/sni_router.cpp
   src/routing/interface_monitor.cpp
   src/routing/route_table.cpp
   src/routing/policy_rule.cpp
