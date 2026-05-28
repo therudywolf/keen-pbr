@@ -31,13 +31,28 @@ cyberpunk style.
 - Coalesce bursts of NDM netfilter events into a single firewall refresh.
 - Config validation no longer rejects real-world lists (CIDRs in domain lists,
   wildcards, `host:port` — the parser skips them gracefully).
-- Resolver-health TXT poll runs every 30 s (not 5 s) — keeps a weak MIPS
-  router's CPU free for actual routing work.
+- Resolver-health TXT poll runs every 120 s — keeps a weak MIPS router's CPU
+  free for actual routing work.
+- **ListWarmer**: a background worker resolves every list domain via a direct
+  UDP query to a public resolver and `ipset -! restore`s the answers into the
+  matching `kpbr*d_<list>` sets. This bypasses dnsmasq's cache (which does not
+  refresh ipsets on a cache hit), so a known-good IP stays in the set ahead of
+  its TTL even when a client resolves it out-of-band.
+- **Conntrack flush on config change**: when a list/route actually changes,
+  stale `[FASTNAT]` conntrack entries whose dst is in one of our sets are
+  invalidated via libnl so the next packet re-routes — without walking the
+  table on every netfilter event (that would crush a weak router).
+- **IPv6 detection** falls back to `/proc/sys/net/ipv6` when the `AF_INET6`
+  socket probe loses the startup race against on-demand kernel modules, and the
+  init script pre-warms the v6 netfilter modules. v6 PBR now actually engages.
 
 **Web UI**
 
 - Bulk actions on every table, a list duplicate/overlap checker, multi-line
   rule conditions, concise "used in rule #N" hints, clearer interface pickers.
+- DNS-server / DNS-rule screens removed: forest-pbr leans on the router's own
+  dnsmasq (NextDNS-over-stubby DoT here), so there's no DNS to configure in the
+  app — one less thing to misconfigure.
 - Full **neon-cyberpunk retheme** — deep black, neon cyan, Space Grotesk +
   JetBrains Mono — dark by default.
 
