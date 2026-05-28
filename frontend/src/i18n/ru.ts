@@ -112,6 +112,7 @@ export const ruTranslation = {
           systemMonitor: "Обзор системы",
           settings: "Настройки",
           outbounds: "Outbounds (выходы)",
+          services: "Сервисы",
           lists: "Списки",
           routingRules: "Правила маршрутизации",
         },
@@ -462,6 +463,47 @@ export const ruTranslation = {
           actions: {
             saving: "Сохранение...",
             save: "Сохранить",
+          },
+        },
+        services: {
+          title: "Сервисы",
+          description:
+            "Смотрите, какой outbound использует каждый сервис, и переключайте его между VPN, WAN и другими. Проверяйте утечку для каждого сервиса по запросу.",
+          searchPlaceholder: "Поиск сервисов...",
+          health: {
+            title: "Состояние outbounds",
+            vpn: "{{tag}} (VPN)",
+            wan: "{{tag}} (WAN)",
+          },
+          headers: {
+            service: "Сервис",
+            entries: "Записи",
+            currentOutbound: "Текущий outbound",
+            change: "Изменить",
+            leakCheck: "Проверка утечки",
+          },
+          actions: {
+            check: "Проверить",
+            selectOutbound: "Выберите outbound",
+          },
+          leak: {
+            ok: "OK",
+            leaking: "Течёт в {{outbound}}",
+            failed: "Проверка не удалась",
+          },
+          messages: {
+            saved:
+              "Outbound сохранён в черновик. Примените новый конфиг, чтобы записать его.",
+            noTestableEntry: "У этого сервиса нет записи для проверки.",
+          },
+          empty: {
+            title: "// тихо в лесу — сервисов пока нет",
+            description:
+              "Добавьте список, чтобы управлять тем, какой outbound использует его трафик. awoo ⌁",
+          },
+          noMatches: {
+            title: "Нет сервисов по вашему запросу",
+            description: "Попробуйте другое имя или очистите поле поиска.",
           },
         },
         routingRules: {

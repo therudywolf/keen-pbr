@@ -54,6 +54,10 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
         icon: ShieldIcon,
         items: [
           {
+            title: t("nav.items.services"),
+            url: "/services",
+          },
+          {
             title: t("nav.items.lists"),
             url: "/lists",
           },

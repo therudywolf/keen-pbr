@@ -39,6 +39,11 @@ const RoutingRulesPage = lazy(() =>
     default: m.RoutingRulesPage,
   })),
 )
+const ServicesPage = lazy(() =>
+  import("@/pages/services-page").then((m) => ({
+    default: m.ServicesPage,
+  })),
+)
 const NotFoundPage = lazy(() =>
   import("@/pages/not-found-page").then((m) => ({ default: m.NotFoundPage })),
 )
@@ -90,6 +95,7 @@ function App() {
             )}
           </Route>
           <Route component={RoutingRulesPage} path="/routing-rules" />
+          <Route component={ServicesPage} path="/services" />
           <Route component={NotFoundPage} />
         </Switch>
       </Suspense>

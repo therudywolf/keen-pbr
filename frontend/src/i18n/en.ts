@@ -111,6 +111,7 @@ export const enTranslation = {
           systemMonitor: "Dashboard",
           settings: "Settings",
           outbounds: "Outbounds",
+          services: "Services",
           lists: "Lists",
           routingRules: "Routing rules",
         },
@@ -453,6 +454,46 @@ export const enTranslation = {
           actions: {
             saving: "Saving...",
             save: "Save",
+          },
+        },
+        services: {
+          title: "Services",
+          description:
+            "See which outbound each service uses and switch it between VPN, WAN, and others. Run an on-demand leak check per service.",
+          searchPlaceholder: "Search services...",
+          health: {
+            title: "Outbounds health",
+            vpn: "{{tag}} (VPN)",
+            wan: "{{tag}} (WAN)",
+          },
+          headers: {
+            service: "Service",
+            entries: "Entries",
+            currentOutbound: "Current outbound",
+            change: "Change",
+            leakCheck: "Leak check",
+          },
+          actions: {
+            check: "Check",
+            selectOutbound: "Select outbound",
+          },
+          leak: {
+            ok: "OK",
+            leaking: "Leaking to {{outbound}}",
+            failed: "Check failed",
+          },
+          messages: {
+            saved: "Outbound staged. Apply new config to persist it.",
+            noTestableEntry: "This service has no entry to test.",
+          },
+          empty: {
+            title: "// quiet in the forest — no services yet",
+            description:
+              "Add a list to manage which outbound its traffic uses. awoo ⌁",
+          },
+          noMatches: {
+            title: "No services match your search",
+            description: "Try a different name or clear the search box.",
           },
         },
         routingRules: {
