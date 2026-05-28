@@ -17,6 +17,7 @@
 #include "../firewall/firewall_verifier.hpp"
 #include "../lists/list_warmer.hpp"
 #include "../log/logger.hpp"
+#include "../routing/conntrack_flush.hpp"
 #include "../util/daemon_signals.hpp"
 #include "../dns/dns_probe_server.hpp" // IWYU pragma: keep
 #include "scheduler.hpp"
@@ -102,6 +103,11 @@ Daemon::Daemon(Config config,
     firewall_state_.set_fwmark_mask(fwmark_mask_value(config_.fwmark.value_or(FwmarkConfig{})));
     list_service_.ensure_dir();
     scheduler_ = std::make_unique<Scheduler>(*this);
+    // Flush stale FASTNAT-cached conntrack entries after every firewall
+    // reapply — see ConntrackFlusher for why this is needed when ipsets or
+    // config change. Constructed eagerly because the underlying netlink
+    // socket is opened per pass (so no setup cost during idle).
+    conntrack_flusher_ = std::make_unique<ConntrackFlusher>(&blocking_executor_);
 
 #ifdef WITH_API
     dns_test_broadcaster_ = std::make_unique<SseBroadcaster>();
@@ -425,6 +431,13 @@ void Daemon::refresh_iproute_and_firewall_runtime() {
         log.info("Runtime iproute and firewall refresh complete.");
     } catch (const std::exception& e) {
         log.error("Runtime iproute and firewall refresh failed: {}", e.what());
+    }
+    // Always invalidate stale conntrack: even when the firewall reapply itself
+    // failed (partial state), the operator's intent was a refresh — give the
+    // next packet a chance to re-route. Errors inside the flush are logged
+    // by the flusher itself and never propagate back to the event loop.
+    if (conntrack_flusher_) {
+        conntrack_flusher_->flush_async();
     }
 }
 

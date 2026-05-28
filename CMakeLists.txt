@@ -234,6 +234,7 @@ set(SOURCES
   src/cmd/test_routing.cpp
   src/routing/target.cpp
   src/routing/netlink.cpp
+  src/routing/conntrack_flush.cpp
   src/routing/interface_monitor.cpp
   src/routing/route_table.cpp
   src/routing/policy_rule.cpp

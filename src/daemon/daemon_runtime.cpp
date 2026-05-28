@@ -10,6 +10,7 @@
 #include "../firewall/firewall_runtime.hpp"
 #include "../lists/list_warmer.hpp"
 #include "../log/logger.hpp"
+#include "../routing/conntrack_flush.hpp"
 #include "../routing/urltest_manager.hpp"
 #include "../util/ipv6_support.hpp"
 #include "../util/time_utils.hpp"
@@ -181,6 +182,12 @@ void Daemon::handle_urltest_selection_change(const std::string& urltest_tag,
             log.info("Routing and firewall rebuilt after urltest change.");
         } catch (const std::exception& e) {
             log.error("Error rebuilding routing/firewall after urltest change: {}", e.what());
+        }
+        // Urltest swap routed an outbound to a different interface; flows
+        // that were already pinned to the previous nexthop via FASTNAT
+        // would otherwise keep using the old path until they expire.
+        if (conntrack_flusher_) {
+            conntrack_flusher_->flush_async();
         }
     }, "urltest-selection-change:" + urltest_tag);
 }
@@ -575,6 +582,15 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
 
     config_store_.replace_active(config_, outbound_marks_);
     publish_runtime_state();
+
+    // Config (and therefore ipset membership) may have changed in a way that
+    // alters routing. Existing conntrack entries cached by the kernel's
+    // FASTNAT path still carry their old fwmark and would skip mangle for the
+    // remainder of their natural lifetime. Trigger an async flush so flows
+    // whose dst is in any of our kpbr* sets get re-evaluated on next packet.
+    if (conntrack_flusher_) {
+        conntrack_flusher_->flush_async();
+    }
 }
 
 void Daemon::apply_config(Config config, bool refresh_remote_lists) {

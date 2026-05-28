@@ -37,6 +37,7 @@ class Scheduler;
 class UrltestManager;
 class DnsProbeServer;
 class ListWarmer;
+class ConntrackFlusher;
 struct DnsProbeEvent;
 
 #ifdef WITH_API
@@ -330,6 +331,10 @@ private:
     std::unique_ptr<Scheduler> scheduler_;
     std::unique_ptr<UrltestManager> urltest_manager_;
     std::unique_ptr<ListWarmer> list_warmer_;
+    // Invalidates conntrack entries whose dst-IP lives in a kpbr* ipset so the
+    // next packet re-evaluates routing instead of riding a stale FASTNAT mark.
+    // See ConntrackFlusher for the rationale.
+    std::unique_ptr<ConntrackFlusher> conntrack_flusher_;
     BlockingExecutor blocking_executor_{2, 64};
     std::atomic<std::uint64_t> runtime_generation_{1};
     std::atomic<bool> remote_list_refresh_inflight_{false};

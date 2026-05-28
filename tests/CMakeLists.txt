@@ -15,6 +15,7 @@ add_executable(keen-pbr-tests
   test_list_set_usage.cpp
   test_list_service.cpp
   test_list_warmer.cpp
+  test_conntrack_flush.cpp
   test_http_client.cpp
   test_config_validation.cpp
   test_list_parser.cpp
@@ -27,6 +28,7 @@ add_executable(keen-pbr-tests
   test_system_resolver_hook.cpp
   test_system_info.cpp
   test_safe_exec.cpp
+  test_ipv6_support.cpp
   test_trace_logging.cpp
   test_log_file_sink.cpp
   test_port_spec_util.cpp
@@ -66,6 +68,7 @@ add_executable(keen-pbr-tests
   ../src/daemon/resolver_health.cpp
   ../src/http/http_client.cpp
   ../src/routing/netlink.cpp
+  ../src/routing/conntrack_flush.cpp
   ../src/util/blocking_executor.cpp
   ../src/util/firewall_backend_utils.cpp
   ../src/util/ipv6_support.cpp
