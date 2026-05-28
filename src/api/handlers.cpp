@@ -8,6 +8,7 @@
 #include "handler_health_routing.hpp"
 #include "handler_runtime_interfaces.hpp"
 #include "handler_runtime_outbounds.hpp"
+#include "handler_metrics_traffic.hpp"
 #include "handler_test_routing.hpp"
 #include "handler_dns_test.hpp"
 
@@ -21,6 +22,7 @@ void register_api_handlers(ApiServer& server, ApiContext& ctx) {
     register_health_routing_handler(server, ctx);
     register_runtime_interfaces_handler(server, ctx);
     register_runtime_outbounds_handler(server, ctx);
+    register_metrics_traffic_handler(server, ctx);
     register_test_routing_handler(server, ctx);
     register_dns_test_handler(server, ctx);
 }

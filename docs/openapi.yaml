@@ -280,6 +280,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/RuntimeInterfaceInventoryResponse"
 
+  /api/metrics/traffic:
+    get:
+      summary: Per-outbound traffic counters
+      description: >
+        Returns per-outbound packet and byte counters read from the mangle
+        `KeenPbrTable` chain (`iptables -t mangle -L KeenPbrTable -v -x -n`).
+        Counters for each outbound are summed across the per-inbound-interface
+        MARK rules that share its fwmark. The counters are kernel rule counters
+        and therefore accumulate since the last firewall apply (a rebuild resets
+        them to zero). If the iptables listing cannot be read (for example the
+        routing runtime is stopped), `outbounds` is returned as an empty array
+        with HTTP 200.
+      operationId: getMetricsTraffic
+      responses:
+        "200":
+          description: Per-outbound traffic counters
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - outbounds
+                  - note
+                properties:
+                  outbounds:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - tag
+                        - fwmark
+                        - packets
+                        - bytes
+                      properties:
+                        tag:
+                          type: string
+                          description: Outbound tag from config.
+                          example: forestserver_ru
+                        fwmark:
+                          type: integer
+                          format: int64
+                          description: Integer firewall mark value (e.g. 0x50000 == 327680).
+                          example: 327680
+                        packets:
+                          type: integer
+                          format: int64
+                          description: Packets matched by this outbound's MARK rules since the last apply.
+                          example: 40514
+                        bytes:
+                          type: integer
+                          format: int64
+                          description: Bytes matched by this outbound's MARK rules since the last apply.
+                          example: 12345678
+                  note:
+                    type: string
+                    example: counters accumulate since the last firewall apply
+              example:
+                outbounds:
+                  - tag: forestserver_ru
+                    fwmark: 327680
+                    packets: 40514
+                    bytes: 12345678
+                note: counters accumulate since the last firewall apply
+
   /api/dns/test:
     get:
       summary: Stream DNS test queries

@@ -253,6 +253,7 @@ set(SOURCES
   src/routing/route_table.cpp
   src/routing/policy_rule.cpp
   src/routing/routing_verifier.cpp
+  src/metrics/traffic_counters.cpp
   src/health/circuit_breaker.cpp
   src/health/url_tester.cpp
   src/health/routing_health_checker.cpp
@@ -308,6 +309,7 @@ if(WITH_API)
     src/api/handler_health_routing.cpp
     src/api/handler_runtime_interfaces.cpp
     src/api/handler_runtime_outbounds.cpp
+    src/api/handler_metrics_traffic.cpp
     src/api/handler_test_routing.cpp
     src/api/handler_dns_test.cpp
   )
