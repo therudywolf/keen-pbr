@@ -112,10 +112,8 @@ export const ruTranslation = {
           systemMonitor: "Обзор системы",
           settings: "Настройки",
           outbounds: "Outbounds (выходы)",
-          dnsServers: "DNS-серверы",
           lists: "Списки",
           routingRules: "Правила маршрутизации",
-          dnsRules: "DNS-правила",
         },
       },
       brand: {
@@ -189,8 +187,6 @@ export const ruTranslation = {
           outboundsDegraded: "Деградировавшие исходящие",
           outboundsConfigured: "Настроено: {{count}}",
           routingRules: "Правила маршрутизации",
-          dnsRules: "Правила DNS",
-          dnsServers: "DNS-серверы",
           lists: "Списки",
           listEntries: "Записей: {{count}}",
           interfacesUp: "Интерфейсы активны",
@@ -466,105 +462,6 @@ export const ruTranslation = {
           actions: {
             saving: "Сохранение...",
             save: "Сохранить",
-          },
-        },
-        dnsServers: {
-          title: "DNS-серверы",
-          description: "Upstream DNS-серверы для разрешения доменных имён.",
-          keeneticAddress: "Встроенный DNS Keenetic",
-          actions: {
-            add: "Добавить DNS-сервер",
-          },
-          empty: {
-            title: "DNS-серверов пока нет",
-            description:
-              "Добавьте DNS-сервер, чтобы настроить upstream-разрешение.",
-          },
-          loadErrorDescription:
-            "Сейчас не получается загрузить DNS-серверы. Попробуйте обновить страницу.",
-          headers: {
-            name: "Название",
-            address: "Адрес",
-            outbound: "Outbound",
-            actions: "Действия",
-          },
-          delete: {
-            confirmWithReferences:
-              'DNS-сервер "{{serverTag}}" сейчас используется в {{count}} правил(е/ах){{fallbackSuffix}}.\nУдалить и автоматически убрать эти ссылки?',
-            fallbackSuffix: " и как fallback",
-          },
-          deleteDialog: {
-            title: "Удалить DNS-серверы?",
-            description:
-              "При подтверждении операции будут произведены следующие действия:",
-            confirm: "Удалить",
-            items: {
-              serverPrefix: "DNS-сервер",
-              serverSuffix: "будет удалён.",
-              dnsRule: "DNS-правило #{{number}} будет удалено.",
-              fallback: "Fallback DNS будет изменён.",
-            },
-          },
-          bulk: {
-            selected: "Выбрано: {{count}}",
-            delete: "Удалить выбранные",
-            confirmDelete:
-              "Удалить DNS-серверы: {{tags}}?\nАвтоматически убрать ссылки из правил?",
-          },
-          none: "нет",
-        },
-        dnsServerUpsert: {
-          createTitle: "Создать DNS-сервер",
-          editTitle: "Изменить DNS-сервер",
-          missingCardDescription: "Запрошенный DNS-сервер не найден.",
-          missingCardTitle: "DNS-сервер не найден",
-          missingDescription:
-            "Вернитесь к таблице DNS-серверов и выберите корректную запись.",
-          back: "Назад к DNS-серверам",
-          description: "Этот сервер будет доступен в DNS-правилах и как fallback.",
-          cardDescription:
-            "Выберите тип DNS-сервера и необязательный detour outbound.",
-          editCardTitle: "Изменить {{tag}}",
-          fields: {
-            tag: "Название",
-            tagHint: "Короткое название сервера для использования в DNS-правилах.",
-            type: "Тип DNS",
-            typeHint:
-              "Keenetic использует текущий встроенный DNS роутера. Plaintext DNS использует IP-адрес, введённый вручную.",
-            typeOptions: {
-              keenetic: "Keenetic DNS",
-              static: "Plaintext DNS",
-            },
-            keeneticNotice: {
-              description:
-                "Для этого режима DNS-серверы нужно настроить в веб-интерфейсе Keenetic.",
-              openLink: "Перейти к настройке",
-              navigation:
-                "Перейдите в Сетевые правила -> Интернет-фильтры -> Настройка DNS.",
-              dotDohOnly:
-                "Если там настроены DoT или DoH серверы, будут использоваться только они.",
-            },
-            address: "Адрес",
-            addressPlaceholder: "1.1.1.1 или [2606:4700::1111]:53",
-            addressHint:
-              "IP-адрес сервера, напр. `1.1.1.1` или `[2606:4700::1111]:53`.",
-            detour: "Делать запросы через Outbound",
-            detourEmpty: "Не выбрано",
-            detourPlaceholder: "Необязательный тег outbound",
-            detourHint:
-              "Необязательно: отправлять DNS-запросы к этому серверу через конкретный outbound (например, VPN).",
-          },
-          validation: {
-            tagRequired: "Название обязательно.",
-            tagUnique: "Название должно быть уникальным.",
-            typeRequired: "Тип DNS обязателен.",
-            addressRequired: "Адрес обязателен.",
-            addressInvalid:
-              "Адрес должен быть корректным IPv4/IPv6 значением с необязательным портом.",
-          },
-          actions: {
-            create: "Создать DNS-сервер",
-            save: "Сохранить DNS-сервер",
           },
         },
         routingRules: {
@@ -846,110 +743,10 @@ export const ruTranslation = {
               'Outbound "{{outbound}}" ссылается на отсутствующий тег "{{referenced}}".',
           },
         },
-        dnsRules: {
-          title: "DNS-правила",
-          description:
-            "Определяет, какой DNS-сервер используется для доменов из ваших списков.",
-          actions: {
-            add: "Добавить DNS-правило",
-            enableRule: "Включить правило",
-            disableRule: "Выключить правило",
-          },
-          messages: {
-            saved:
-              "Конфигурация DNS сохранена в черновик. Примените новый конфиг, чтобы записать её.",
-          },
-          validation: {
-            invalidFallback:
-              "Основные DNS сервера должны ссылаться на существующие теги серверов.",
-            invalidFallbackChange:
-              "Нельзя изменить fallback, пока DNS-правила невалидны.",
-            invalidResult:
-              "Нельзя сохранить, потому что итоговые DNS-правила невалидны.",
-          },
-          fallback: {
-            title: "Основные DNS сервера",
-            description:
-              "Упорядоченный список DNS-серверов, которые dnsmasq использует, когда ни одно DNS-правило не подходит.",
-            add: "Добавить основной DNS сервер",
-            placeholderTitle: "Основные DNS сервера не выбраны",
-            placeholderDescription:
-              "Добавьте один или несколько DNS-серверов. Их порядок сохраняется и используется в сгенерированном конфиге dnsmasq.",
-            noneDefined: "На странице DNS-серверы не добавлено ни одного сервера.",
-            noneAvailable: "Все DNS-серверы уже выбраны.",
-          },
-          empty: {
-            title: "DNS-правил пока нет",
-            description:
-              "Правил пока нет - добавьте правило, чтобы направлять DNS-запросы по спискам через выбранный сервер.",
-          },
-          headers: {
-            criteria: "Условие",
-            serverTag: "DNS-сервер",
-            allowDomainRebinding: "Разрешение rebind",
-            actions: "Действия",
-          },
-          criteriaLabels: {
-            lists: "Списки",
-          },
-          rebinding: {
-            enabled: "Разрешён",
-            disabled: "Запрещён",
-          },
-          bulk: {
-            selected: "Выбрано: {{count}}",
-            enable: "Включить выбранные",
-            disable: "Выключить выбранные",
-            delete: "Удалить выбранные",
-            confirmDelete: "Удалить {{count}} DNS-правил(о/а)?",
-          },
-        },
-        dnsRuleUpsert: {
-          createTitle: "Создать DNS-правило",
-          editTitle: "Изменить DNS-правило",
-          description:
-            "Это правило определяет, какой DNS-сервер использовать для доменов из конкретного списка.",
-          cardDescription: "Укажите имена списков и DNS-сервер для этого правила.",
-          messages: {
-            saved:
-              "DNS-правило сохранено в черновик. Примените новый конфиг, чтобы записать его.",
-          },
-          validation: {
-            notFound: "Запрошенное DNS-правило не найдено.",
-            fixErrors: "Исправьте ошибки валидации перед сохранением.",
-            serverRequired: "Правило должно ссылаться на существующий DNS-сервер.",
-            listsRequired: "Правило должно содержать хотя бы один список.",
-            unknownLists: "Неизвестные списки: {{lists}}",
-            duplicate: "Дублирующееся правило.",
-          },
-          missing: {
-            cardDescription: "Запрошенное DNS-правило не найдено.",
-            cardTitle: "DNS-правило не найдено",
-            description: "Вернитесь к DNS-правилам и выберите корректную запись.",
-            back: "Назад к DNS-правилам",
-          },
-          actions: { create: "Создать правило", save: "Сохранить правило" },
-          fields: {
-            serverTag: "DNS-сервер",
-            selectServer: "Выберите DNS-сервер",
-            dnsServers: "DNS-серверы",
-            noServers: "На странице DNS-серверы не добавлено ни одного сервера.",
-            listNames: "Списки доменов",
-            allowDomainRebinding: "Разрешить DNS rebind для этих доменов",
-            allowDomainRebindingHint:
-              "Включайте только если вы точно знаете, что этот список доменов указывает на внутренние сервисы. Тогда ответы для подходящих доменов могут содержать внутренние/приватные IP-адреса (например, 192.168.0.0/16, 10.0.0.0/8 и другие диапазоны локальной сети).",
-            listPlaceholderDescription:
-              "Выберите списки для этого правила. Совпадающие домены будут использовать этот DNS-сервер.",
-            noListsSelected: "Списки не выбраны",
-            listUsedElsewhere: "Используется ещё в: {{summary}}",
-            noLists:
-              "Не найдено ни одного списка. Пожалуйста, сначала создайте его на странице Списки.",
-          },
-        },
         lists: {
           title: "Списки",
           description:
-            "Группы доменов и IP-адресов для использования в правилах трафика и DNS.",
+            "Группы доменов и IP-адресов для использования в правилах трафика.",
           actions: {
             new: "Добавить список",
             update: "Обновить",
@@ -958,7 +755,7 @@ export const ruTranslation = {
           empty: {
             title: "// списков пока нет — пустое логово",
             description:
-              "Создайте первый список, чтобы использовать его в правилах маршрутизации и DNS.",
+              "Создайте первый список, чтобы использовать его в правилах маршрутизации.",
           },
           headers: {
             name: "Имя",
@@ -973,14 +770,14 @@ export const ruTranslation = {
             deleteSelected: "Удалить выбранные списки",
             confirmDeleteSimple: "Удалить списки: {{names}}?",
             confirmDeleteWithRefs:
-              "Удалить списки: {{names}} и при необходимости убрать ссылки из правил маршрутизации и DNS?",
+              "Удалить списки: {{names}} и при необходимости убрать ссылки из правил маршрутизации?",
             noUrlBacked:
               "Ни один из выбранных списков не основан на URL (обновление нечего).",
           },
           delete: {
             confirm: 'Удалить список "{{name}}"?',
             confirmWithReferences:
-              'Удалить список "{{name}}" и убрать его ссылки из правил маршрутизации и DNS?',
+              'Удалить список "{{name}}" и убрать его ссылки из правил маршрутизации?',
           },
           deleteDialog: {
             title: "Удалить списки?",
@@ -992,8 +789,6 @@ export const ruTranslation = {
               listSuffix: "будет удалён.",
               routeRuleRemoved: "Правило маршрутизации #{{number}} будет удалено.",
               routeRuleUpdated: "Правило маршрутизации #{{number}} будет изменено.",
-              dnsRuleRemoved: "DNS-правило #{{number}} будет удалено.",
-              dnsRuleUpdated: "DNS-правило #{{number}} будет изменено.",
             },
           },
           location: {

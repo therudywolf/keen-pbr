@@ -4,7 +4,6 @@ import type { Outbound } from "@/api/generated/model/outbound"
 export type OutboundDeleteImpact = {
   deletedOutboundTags: string[]
   routeRuleIndexes: number[]
-  dnsServerDetours: string[]
   urltestMemberships: Array<{
     outboundTag: string
     groupIndex: number
@@ -49,9 +48,6 @@ export function getOutboundDeleteImpact(
   const routeRuleIndexes = (config.route?.rules ?? []).flatMap((rule, index) =>
     deletedTags.has(rule.outbound) ? [index] : []
   )
-  const dnsServerDetours = (config.dns?.servers ?? []).flatMap((server) =>
-    server.detour && deletedTags.has(server.detour) ? [server.tag] : []
-  )
   const urltestMemberships: OutboundDeleteImpact["urltestMemberships"] = []
   const removedUrltestGroups: OutboundDeleteImpact["removedUrltestGroups"] = []
 
@@ -88,7 +84,6 @@ export function getOutboundDeleteImpact(
   return {
     deletedOutboundTags: deletedTagList,
     routeRuleIndexes,
-    dnsServerDetours,
     urltestMemberships,
     removedUrltestGroups,
   }
@@ -111,18 +106,6 @@ export function buildUpdatedConfigForOutboundsDelete(
       rules: (config.route?.rules ?? []).filter(
         (rule) => !deletedTags.has(rule.outbound)
       ),
-    },
-    dns: {
-      ...config.dns,
-      servers: (config.dns?.servers ?? []).map((server) => {
-        if (!server.detour || !deletedTags.has(server.detour)) {
-          return server
-        }
-
-        const serverWithoutDetour = { ...server }
-        delete serverWithoutDetour.detour
-        return serverWithoutDetour
-      }),
     },
   }
 }

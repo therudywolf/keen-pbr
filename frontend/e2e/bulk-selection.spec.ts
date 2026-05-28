@@ -43,20 +43,6 @@ test.describe("Bulk row selection", () => {
     await expect(page.getByRole("button", { name: /^disable selected$/i })).toBeVisible()
   })
 
-  test("dns rules page shows bulk actions after selecting a rule", async ({
-    page,
-  }) => {
-    await installAppApiMocks(page)
-    await page.goto("/dns-rules")
-
-    const rowCheckboxes = page.locator("tbody").getByRole("checkbox")
-    await expect(rowCheckboxes.first()).toBeVisible()
-    await rowCheckboxes.first().click()
-
-    await expect(page.getByTestId("bulk-selection-toolbar")).toBeVisible()
-    await expect(page.getByRole("button", { name: /^disable selected$/i })).toBeVisible()
-  })
-
   test("outbounds page shows bulk delete after selecting a row", async ({
     page,
   }) => {

@@ -442,22 +442,6 @@ function getOutboundDeleteImpactItems(
     })
   }
 
-  for (const server of impact.dnsServerDetours) {
-    items.push({
-      label: t("pages.outbounds.deleteDialog.items.dnsDetour", { server }),
-      details: [
-        formatDetail(
-          t("pages.dnsServers.headers.outbound"),
-          formatValueTransition(
-            config?.dns?.servers?.find((item) => item.tag === server)?.detour ??
-              t("common.noneShort"),
-            t("common.noneShort"),
-          ),
-        ),
-      ],
-    })
-  }
-
   for (const membership of impact.urltestMemberships) {
     const group = config?.outbounds?.find(
       (outbound) => outbound.tag === membership.outboundTag,

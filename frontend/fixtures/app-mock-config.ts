@@ -7,34 +7,6 @@ export function createAppMockConfig(): ConfigObject {
       strict_enforcement: false,
       firewall_backend: "auto",
     },
-    dns: {
-      dns_test_server: { listen: "127.0.0.1:5353" },
-      servers: [
-        {
-          tag: "upstream",
-          type: "static",
-          address: "1.1.1.1",
-        },
-        {
-          tag: "backup",
-          type: "static",
-          address: "8.8.8.8",
-        },
-      ],
-      rules: [
-        {
-          enabled: true,
-          server: "upstream",
-          list: ["shared_list"],
-        },
-        {
-          enabled: true,
-          server: "backup",
-          list: ["shared_list", "other_list"],
-        },
-      ],
-      fallback: ["upstream", "backup"],
-    },
     lists: {
       shared_list: {
         url: "https://example.com/list.txt",

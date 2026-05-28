@@ -46,10 +46,6 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             title: t("nav.items.outbounds"),
             url: "/outbounds",
           },
-          {
-            title: t("nav.items.dnsServers"),
-            url: "/dns-servers",
-          },
         ],
       },
       {
@@ -64,10 +60,6 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
           {
             title: t("nav.items.routingRules"),
             url: "/routing-rules",
-          },
-          {
-            title: t("nav.items.dnsRules"),
-            url: "/dns-rules",
           },
         ],
       },

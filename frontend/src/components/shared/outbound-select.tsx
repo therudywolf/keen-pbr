@@ -69,7 +69,7 @@ export function OutboundSelect({
   )
 
   const selectedValue = value || null
-  const resolvedEmptyLabel = emptyLabel ?? t("pages.dnsServerUpsert.fields.detourEmpty")
+  const resolvedEmptyLabel = emptyLabel ?? t("common.noneShort")
   const resolvedPlaceholder =
     placeholder ?? t("pages.routingRuleUpsert.fields.selectOutbound")
   const resolvedGroupLabel =

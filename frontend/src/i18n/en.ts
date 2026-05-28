@@ -111,10 +111,8 @@ export const enTranslation = {
           systemMonitor: "Dashboard",
           settings: "Settings",
           outbounds: "Outbounds",
-          dnsServers: "DNS Servers",
           lists: "Lists",
           routingRules: "Routing rules",
-          dnsRules: "DNS Rules",
         },
       },
       brand: {
@@ -186,8 +184,6 @@ export const enTranslation = {
           outboundsDegraded: "Outbounds degraded",
           outboundsConfigured: "{{count}} configured",
           routingRules: "Routing rules",
-          dnsRules: "DNS rules",
-          dnsServers: "DNS servers",
           lists: "Lists",
           listEntries: "{{count}} entries",
           interfacesUp: "Interfaces up",
@@ -457,105 +453,6 @@ export const enTranslation = {
           actions: {
             saving: "Saving...",
             save: "Save",
-          },
-        },
-        dnsServers: {
-          title: "DNS Servers",
-          description: "Upstream DNS servers used for domain name resolution.",
-          keeneticAddress: "Keenetic built-in DNS",
-          actions: {
-            add: "Add DNS server",
-          },
-          empty: {
-            title: "No DNS servers yet",
-            description: "Add a DNS server to configure upstream resolution.",
-          },
-          loadErrorDescription:
-            "We can't load DNS servers right now. Try refreshing the page.",
-          headers: {
-            name: "Name",
-            address: "Address",
-            outbound: "Outbound",
-            actions: "Actions",
-          },
-          delete: {
-            confirmWithReferences:
-              'DNS server "{{serverTag}}" is currently used by {{count}} rule(s){{fallbackSuffix}}.\nDelete and automatically remove those references?',
-            fallbackSuffix: " and as fallback",
-          },
-          deleteDialog: {
-            title: "Delete DNS servers?",
-            description:
-              "Confirming this operation will make the following changes:",
-            confirm: "Delete",
-            items: {
-              serverPrefix: "DNS server",
-              serverSuffix: "will be deleted.",
-              dnsRule: "DNS rule #{{number}} will be deleted.",
-              fallback: "Fallback DNS will be changed.",
-            },
-          },
-          bulk: {
-            selected: "{{count}} selected",
-            delete: "Delete selected",
-            confirmDelete:
-              "Delete DNS servers {{tags}}?\nAutomatically remove stale references?",
-          },
-          none: "none",
-        },
-        dnsServerUpsert: {
-          createTitle: "Create DNS server",
-          editTitle: "Edit DNS server",
-          missingCardDescription: "The requested DNS server could not be found.",
-          missingCardTitle: "Missing DNS server",
-          missingDescription:
-            "Return to the DNS servers table and choose a valid entry.",
-          back: "Back to DNS servers",
-          description:
-            "This server will be available in your DNS rules and as a fallback.",
-          cardDescription:
-            "Choose the DNS server type and optional detour outbound.",
-          editCardTitle: "Edit {{tag}}",
-          fields: {
-            tag: "Name",
-            tagHint: "A short name for this server, used in DNS rules.",
-            type: "DNS type",
-            typeHint:
-              "Keenetic reuses the router's current built-in DNS. Plaintext DNS uses a manually entered IP address.",
-            typeOptions: {
-              keenetic: "Keenetic DNS",
-              static: "Plaintext DNS",
-            },
-            keeneticNotice: {
-              description:
-                "Configure DNS servers in the Keenetic web interface for this mode.",
-              openLink: "Go to settings",
-              navigation:
-                "Go to Network Rules -> Internet safety -> DNS Configuration (Russian UI: Сетевые правила -> Интернет-фильтры -> Настройка DNS).",
-              dotDohOnly:
-                "If any DoT or DoH servers are configured there, only those servers will be used.",
-            },
-            address: "Address",
-            addressPlaceholder: "1.1.1.1 or [2606:4700::1111]:53",
-            addressHint:
-              "The server's IP address, e.g. `1.1.1.1` or `[2606:4700::1111]:53`.",
-            detour: "Make requests via Outbound",
-            detourEmpty: "Not selected",
-            detourPlaceholder: "Optional outbound tag",
-            detourHint:
-              "Optional: send DNS queries for this server through a specific outbound (e.g. a VPN).",
-          },
-          validation: {
-            tagRequired: "Name is required.",
-            tagUnique: "Name must be unique.",
-            typeRequired: "DNS type is required.",
-            addressRequired: "Address is required.",
-            addressInvalid:
-              "Address must be a valid IPv4/IPv6 value with an optional port.",
-          },
-          actions: {
-            create: "Create DNS server",
-            save: "Save DNS server",
           },
         },
         routingRules: {
@@ -828,105 +725,10 @@ export const enTranslation = {
               'Outbound "{{outbound}}" references missing outbound tag "{{referenced}}".',
           },
         },
-        dnsRules: {
-          title: "DNS Rules",
-          description:
-            "Control which DNS server is used for domains in your lists.",
-          actions: {
-            add: "Add DNS rule",
-            enableRule: "Enable rule",
-            disableRule: "Disable rule",
-          },
-          messages: {
-            saved: "DNS configuration staged. Apply new config to persist it.",
-          },
-          validation: {
-            invalidFallback:
-              "Primary DNS servers must reference existing server tags.",
-            invalidFallbackChange:
-              "Cannot change fallback while DNS rules are invalid.",
-            invalidResult: "Cannot save because resulting DNS rules are invalid.",
-          },
-          fallback: {
-            title: "Primary DNS servers",
-            description:
-              "The ordered DNS servers dnsmasq should use when no DNS rule matches.",
-            add: "Add primary DNS server",
-            placeholderTitle: "No primary DNS servers selected",
-            placeholderDescription:
-              "Add one or more DNS servers. The order is preserved and used in generated dnsmasq config.",
-            noneDefined: "No DNS servers defined on the DNS Servers page.",
-            noneAvailable: "All DNS servers are already selected.",
-          },
-          empty: {
-            title: "No DNS rules yet",
-            description:
-              "No rules yet - add a rule to route DNS lookups for specific lists through a chosen server.",
-          },
-          headers: {
-            criteria: "Match",
-            serverTag: "DNS server",
-            allowDomainRebinding: "Domain rebinding",
-            actions: "Actions",
-          },
-          criteriaLabels: {
-            lists: "Lists",
-          },
-          rebinding: {
-            enabled: "Allowed",
-            disabled: "Blocked",
-          },
-          bulk: {
-            selected: "{{count}} selected",
-            enable: "Enable selected",
-            disable: "Disable selected",
-            delete: "Delete selected",
-            confirmDelete: "Delete {{count}} DNS rule(s)?",
-          },
-        },
-        dnsRuleUpsert: {
-          createTitle: "Create DNS rule",
-          editTitle: "Edit DNS rule",
-          description:
-            "This rule defines which DNS server to use for domains in a specific list.",
-          cardDescription: "Set the list names and DNS server for this rule.",
-          messages: { saved: "DNS rule staged. Apply new config to persist it." },
-          validation: {
-            notFound: "The requested DNS rule was not found.",
-            fixErrors: "Fix validation errors before saving.",
-            serverRequired: "Rule must reference an existing DNS server.",
-            listsRequired: "Rule must include at least one list.",
-            unknownLists: "Unknown lists: {{lists}}",
-            duplicate: "Duplicate rule entry.",
-          },
-          missing: {
-            cardDescription: "The requested DNS rule could not be found.",
-            cardTitle: "Missing DNS rule",
-            description: "Return to DNS Rules and choose a valid entry.",
-            back: "Back to DNS rules",
-          },
-          actions: { create: "Create rule", save: "Save rule" },
-          fields: {
-            serverTag: "DNS server",
-            selectServer: "Select DNS server",
-            dnsServers: "DNS servers",
-            noServers: "No DNS servers defined on the DNS Servers page.",
-            listNames: "Domain lists",
-            allowDomainRebinding: "Allow domain rebinding for these domains",
-            allowDomainRebindingHint:
-              "Enable this only when you know this domain list points to internal services. Responses for matched domains will be allowed to contain internal/private IPs (for example 192.168.0.0/16, 10.0.0.0/8, and other local network ranges).",
-            listPlaceholderDescription:
-              "Choose which lists this rule applies to. Matching domains will use this DNS server.",
-            noListsSelected: "No lists selected",
-            listUsedElsewhere: "Also in: {{summary}}",
-            noLists:
-              "No lists found. Please, create first filter on the Lists page.",
-          },
-        },
         lists: {
           title: "Lists",
           description:
-            "Groups of domains and IP addresses you can use in your traffic and DNS rules.",
+            "Groups of domains and IP addresses you can use in your traffic rules.",
           actions: {
             new: "Add list",
             update: "Update",
@@ -935,7 +737,7 @@ export const enTranslation = {
           empty: {
             title: "// no lists yet — empty den",
             description:
-              "Create your first list to use it in routing and DNS rules.",
+              "Create your first list to use it in routing rules.",
           },
           headers: {
             name: "Name",
@@ -950,13 +752,13 @@ export const enTranslation = {
             deleteSelected: "Delete selected lists",
             confirmDeleteSimple: 'Delete lists: {{names}}?',
             confirmDeleteWithRefs:
-              "Delete lists: {{names}} and remove references from routing/DNS rules where needed?",
+              "Delete lists: {{names}} and remove references from routing rules where needed?",
             noUrlBacked: "None of the selected lists are URL-backed.",
           },
           delete: {
             confirm: 'Delete list "{{name}}"?',
             confirmWithReferences:
-              'Delete list "{{name}}" and remove its references from routing and DNS rules?',
+              'Delete list "{{name}}" and remove its references from routing rules?',
           },
           deleteDialog: {
             title: "Delete lists?",
@@ -968,8 +770,6 @@ export const enTranslation = {
               listSuffix: "will be deleted.",
               routeRuleRemoved: "Routing rule #{{number}} will be deleted.",
               routeRuleUpdated: "Routing rule #{{number}} will be changed.",
-              dnsRuleRemoved: "DNS rule #{{number}} will be deleted.",
-              dnsRuleUpdated: "DNS rule #{{number}} will be changed.",
             },
           },
           location: {

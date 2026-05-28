@@ -13,24 +13,6 @@ const GeneralConfigPage = lazy(() =>
     default: m.GeneralConfigPage,
   })),
 )
-const DnsRuleUpsertPage = lazy(() =>
-  import("@/pages/dns-rule-upsert-page").then((m) => ({
-    default: m.DnsRuleUpsertPage,
-  })),
-)
-const DnsRulesPage = lazy(() =>
-  import("@/pages/dns-rules-page").then((m) => ({ default: m.DnsRulesPage })),
-)
-const DnsServersPage = lazy(() =>
-  import("@/pages/dns-servers-page").then((m) => ({
-    default: m.DnsServersPage,
-  })),
-)
-const DnsServerUpsertPage = lazy(() =>
-  import("@/pages/dns-servers-upsert-page").then((m) => ({
-    default: m.DnsServerUpsertPage,
-  })),
-)
 const ListUpsertPage = lazy(() =>
   import("@/pages/list-upsert-page").then((m) => ({
     default: m.ListUpsertPage,
@@ -96,27 +78,6 @@ function App() {
             )}
           </Route>
           <Route component={OutboundsPage} path="/outbounds" />
-          <Route path="/dns-servers/create">
-            <DnsServerUpsertPage mode="create" />
-          </Route>
-          <Route path="/dns-servers/:serverTag/edit">
-            {(params) => (
-              <DnsServerUpsertPage
-                mode="edit"
-                serverTag={decodeURIComponent(params.serverTag)}
-              />
-            )}
-          </Route>
-          <Route component={DnsServersPage} path="/dns-servers" />
-          <Route path="/dns-rules/create">
-            <DnsRuleUpsertPage mode="create" />
-          </Route>
-          <Route path="/dns-rules/:ruleIndex/edit">
-            {(params) => (
-              <DnsRuleUpsertPage mode="edit" ruleIndex={params.ruleIndex} />
-            )}
-          </Route>
-          <Route component={DnsRulesPage} path="/dns-rules" />
           <Route path="/routing-rules/create">
             <RoutingRuleUpsertPage mode="create" />
           </Route>

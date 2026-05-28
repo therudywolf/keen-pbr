@@ -41,8 +41,6 @@ export function OverviewMetrics({
   ).length
 
   const routingRulesCount = config?.route?.rules?.length ?? 0
-  const dnsRulesCount = config?.dns?.rules?.length ?? 0
-  const dnsServersCount = config?.dns?.servers?.length ?? 0
 
   const lists = config?.lists ?? {}
   const listsCount = Object.keys(lists).length
@@ -126,22 +124,12 @@ export function OverviewMetrics({
           value={routingRulesCount}
         />
         <MetricCard
-          label={t("overview.metrics.dnsRules")}
-          tone={dnsRulesCount > 0 ? "info" : "neutral"}
-          value={dnsRulesCount}
-        />
-        <MetricCard
           hint={t("overview.metrics.listEntries", {
             count: listEntriesTotal,
           })}
           label={t("overview.metrics.lists")}
           tone={listsCount > 0 ? "info" : "neutral"}
           value={listsCount}
-        />
-        <MetricCard
-          label={t("overview.metrics.dnsServers")}
-          tone={dnsServersCount > 0 ? "info" : "neutral"}
-          value={dnsServersCount}
         />
         <MetricCard
           fill={interfacesTotal > 0 ? interfacesUp / interfacesTotal : 0}
