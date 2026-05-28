@@ -248,6 +248,7 @@ set(SOURCES
   src/routing/sni_classifier.cpp
   src/routing/sni_router.cpp
   src/routing/tcp_payload.cpp
+  src/routing/autoheal.cpp
   src/routing/nfqueue_listener.cpp
   src/routing/interface_monitor.cpp
   src/routing/route_table.cpp
@@ -310,6 +311,7 @@ if(WITH_API)
     src/api/handler_runtime_interfaces.cpp
     src/api/handler_runtime_outbounds.cpp
     src/api/handler_metrics_traffic.cpp
+    src/api/handler_autoheal.cpp
     src/api/handler_test_routing.cpp
     src/api/handler_dns_test.cpp
   )

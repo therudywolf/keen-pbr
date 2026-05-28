@@ -303,6 +303,7 @@ paths:
                 additionalProperties: false
                 required:
                   - outbounds
+                  - rules
                   - note
                 properties:
                   outbounds:
@@ -335,6 +336,49 @@ paths:
                           format: int64
                           description: Bytes matched by this outbound's MARK rules since the last apply.
                           example: 12345678
+                  rules:
+                    type: array
+                    description: >
+                      Per-route-rule counters, summed across the per-inbound-interface
+                      MARK rules that share each rule's `kpbrm_<index>` match-set.
+                      `index` is the position in `route.rules`. Indices whose set
+                      appears in the listing but has no matching configured rule are
+                      omitted.
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - index
+                        - outbound
+                        - lists
+                        - packets
+                        - bytes
+                      properties:
+                        index:
+                          type: integer
+                          format: int64
+                          description: Zero-based index of the rule in `route.rules`.
+                          example: 0
+                        outbound:
+                          type: string
+                          description: Outbound tag the rule routes to (`route.rules[index].outbound`).
+                          example: forestserver_ru
+                        lists:
+                          type: array
+                          items:
+                            type: string
+                          description: List names attached to the rule (`route.rules[index].list`).
+                          example: [openai, anthropic]
+                        packets:
+                          type: integer
+                          format: int64
+                          description: Packets matched by this rule's MARK rules since the last apply.
+                          example: 40514
+                        bytes:
+                          type: integer
+                          format: int64
+                          description: Bytes matched by this rule's MARK rules since the last apply.
+                          example: 12345678
                   note:
                     type: string
                     example: counters accumulate since the last firewall apply
@@ -342,6 +386,12 @@ paths:
                 outbounds:
                   - tag: forestserver_ru
                     fwmark: 327680
+                    packets: 40514
+                    bytes: 12345678
+                rules:
+                  - index: 0
+                    outbound: forestserver_ru
+                    lists: [openai, anthropic]
                     packets: 40514
                     bytes: 12345678
                 note: counters accumulate since the last firewall apply
@@ -452,6 +502,34 @@ components:
             cache. Defaults to "1.1.1.1" when omitted or null.
           default: "1.1.1.1"
           example: "1.1.1.1"
+        autoheal_enabled:
+          type: boolean
+          nullable: true
+          description: >
+            Reserved for a future periodic auto-heal mode. When false (the
+            default), auto-heal only acts on explicit POST /api/autoheal/promote
+            calls and never changes routing on its own. Parsed and stored but
+            does not affect behavior in this version.
+          default: false
+          example: false
+        autoheal_list:
+          type: string
+          nullable: true
+          description: >
+            Name of the high-priority list that auto-heal promotes leaking
+            domains into. POST /api/autoheal/promote appends domains to this
+            list and guarantees a route rule for it sits at the top of
+            route.rules. Defaults to "auto" when omitted or null.
+          default: "auto"
+          example: "auto"
+        autoheal_outbound:
+          type: string
+          nullable: true
+          description: >
+            Outbound tag the auto-heal top-priority route rule routes to.
+            Defaults to "forestserver_ru" when omitted or null.
+          default: "forestserver_ru"
+          example: "forestserver_ru"
 
     ApiConfig:
       type: object

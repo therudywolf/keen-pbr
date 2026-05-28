@@ -1,6 +1,7 @@
 #ifdef WITH_API
 
 #include "handler_config.hpp"
+#include "config_staging.hpp"
 #include "generated/api_types.hpp"
 
 #include "../config/config.hpp"
@@ -133,34 +134,6 @@ Config normalize_config_for_api_response(Config config) {
         config.daemon->ipv6_enabled.value_or(true);
 
     return config;
-}
-
-std::string serialize_config_pretty(const Config& config) {
-    nlohmann::json json = config;
-    std::function<bool(nlohmann::json&)> prune_json = [&](nlohmann::json& value) -> bool {
-        if (value.is_object()) {
-            for (auto it = value.begin(); it != value.end();) {
-                if (prune_json(it.value())) {
-                    it = value.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-            return value.empty();
-        }
-
-        if (value.is_array()) {
-            for (auto& item : value) {
-                (void)prune_json(item);
-            }
-            return false;
-        }
-
-        return value.is_null();
-    };
-
-    (void)prune_json(json);
-    return json.dump(1, '\t') + "\n";
 }
 
 } // namespace

@@ -28,6 +28,12 @@ struct OutboundTraffic {
     uint64_t bytes{0};     // bytes summed across all matching MARK rules
 };
 
+struct RuleTraffic {
+    uint32_t index{0};     // route-rule index N parsed from a kpbrm_<N> set name
+    uint64_t packets{0};   // packets summed across all matching rules for set N
+    uint64_t bytes{0};     // bytes summed across all matching rules for set N
+};
+
 // Parse the verbose listing of the KeenPbrTable mangle chain and total the
 // per-mark packet/byte counters.
 //
@@ -50,5 +56,25 @@ struct OutboundTraffic {
 std::vector<OutboundTraffic> parse_outbound_traffic(
     const std::string& iptables_output,
     const std::map<uint32_t, std::string>& mark_to_tag);
+
+// Parse the same verbose listing and total the packet/byte counters PER route
+// rule, keyed by the index N in a "match-set kpbrm_<N> dst" clause. Each MARK
+// rule keen-pbr installs carries exactly such a clause (one rule per inbound
+// interface), so summing field 1 (packets) and field 2 (bytes) across all rules
+// that share an N yields the per-rule total — the companion to the per-outbound
+// view, sliced by route.rules[N] instead of by fwmark.
+//
+// A *counting* line here is any line that (a) has its target column equal to
+// "MARK" carrying a "MARK xset 0x.../0x..." spec (the same predicate the
+// per-outbound parser uses, so the RETURN companion rule for each set is not
+// double-counted) and (b) contains a "match-set kpbrm_<N> dst" clause from which
+// N is read. Lines without a parseable kpbrm_<N> set are ignored.
+//
+// Unlike parse_outbound_traffic, the caller does not pre-seed the indices it
+// cares about: every kpbrm_<N> observed in the listing produces one entry.
+// Mapping N back to a config rule (and dropping indices with no rule) is the
+// caller's job. Parsing is bounds-safe: malformed lines are skipped, never
+// crash. Entries are returned sorted by index ascending (stable, deterministic).
+std::vector<RuleTraffic> parse_rule_traffic(const std::string& iptables_output);
 
 }  // namespace keen_pbr3

@@ -44,6 +44,14 @@ void register_metrics_traffic_handler(ApiServer& server, ApiContext& ctx) {
         const auto mark_to_tag = build_mark_to_tag(config);
 
         nlohmann::json outbounds = nlohmann::json::array();
+        nlohmann::json rules = nlohmann::json::array();
+
+        // The route rules backing the kpbrm_<N> sets: rules[N] is route rule N.
+        static const std::vector<RouteRule> kNoRules;
+        const std::vector<RouteRule>& route_rules =
+            (config.route.has_value() && config.route->rules.has_value())
+                ? *config.route->rules
+                : kNoRules;
 
         // Read the verbose, exact-counter listing of the mangle chain. -x keeps
         // packet/byte counts un-abbreviated; -n avoids DNS/service lookups.
@@ -52,7 +60,7 @@ void register_metrics_traffic_handler(ApiServer& server, ApiContext& ctx) {
             /*suppress_stderr=*/true);
 
         // On any exec failure (fork/exec failed -> exit_code -1, or iptables
-        // returned non-zero) leave outbounds empty but still answer 200.
+        // returned non-zero) leave both arrays empty but still answer 200.
         if (capture.exit_code == 0) {
             for (const auto& entry :
                  parse_outbound_traffic(capture.stdout_output, mark_to_tag)) {
@@ -63,10 +71,28 @@ void register_metrics_traffic_handler(ApiServer& server, ApiContext& ctx) {
                     {"bytes", entry.bytes},
                 });
             }
+
+            // Per-rule totals, keyed by the index N in "match-set kpbrm_<N>".
+            // Map each N back to config.route.rules[N]; skip indices with no
+            // matching rule (a stale set, or the listing is ahead of config).
+            for (const auto& entry : parse_rule_traffic(capture.stdout_output)) {
+                if (entry.index >= route_rules.size()) {
+                    continue;
+                }
+                const RouteRule& rule = route_rules[entry.index];
+                rules.push_back({
+                    {"index", entry.index},
+                    {"outbound", rule.outbound},
+                    {"lists", route_rule_lists(rule)},
+                    {"packets", entry.packets},
+                    {"bytes", entry.bytes},
+                });
+            }
         }
 
         nlohmann::json response;
         response["outbounds"] = std::move(outbounds);
+        response["rules"] = std::move(rules);
         response["note"] = "counters accumulate since the last firewall apply";
         return response.dump();
     });

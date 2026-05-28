@@ -35,6 +35,15 @@ const OutboundTraffic* find(const std::vector<OutboundTraffic>& v, uint32_t mark
     return nullptr;
 }
 
+const RuleTraffic* find_rule(const std::vector<RuleTraffic>& v, uint32_t index) {
+    for (const auto& e : v) {
+        if (e.index == index) {
+            return &e;
+        }
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 TEST_CASE("traffic_counters: sums per-mark counters across inbound interfaces") {
@@ -150,6 +159,84 @@ TEST_CASE("traffic_counters: malformed lines are skipped without crashing") {
     const auto result = parse_outbound_traffic(malformed, mark_to_tag);
     REQUIRE(result.size() == 1);
     // Only the final well-formed line counts.
+    CHECK(result[0].packets == 100u);
+    CHECK(result[0].bytes == 200u);
+}
+
+// --- parse_rule_traffic: per-kpbrm_<N> rule totals -------------------------
+
+TEST_CASE("rule_traffic: sums per-rule counters across inbound interfaces") {
+    const auto result = parse_rule_traffic(kFixture);
+    // Two rule sets appear in the fixture: kpbrm_0 and kpbrm_1.
+    REQUIRE(result.size() == 2);
+
+    const auto* rule0 = find_rule(result, 0);
+    REQUIRE(rule0 != nullptr);
+    CHECK(rule0->index == 0u);
+    // Four MARK rules for kpbrm_0 (36492 + 0 + 4022 + 0); the RETURN companion
+    // line that also matches kpbrm_0 must NOT be counted.
+    CHECK(rule0->packets == 40514u);
+    CHECK(rule0->bytes == 10786462u);
+
+    const auto* rule1 = find_rule(result, 1);
+    REQUIRE(rule1 != nullptr);
+    CHECK(rule1->index == 1u);
+    CHECK(rule1->packets == 120000u);
+    CHECK(rule1->bytes == 80000000u);
+}
+
+TEST_CASE("rule_traffic: result is sorted by index ascending") {
+    // A listing whose kpbrm_1 line precedes the kpbrm_0 line must still come
+    // back index-sorted.
+    const char* reordered =
+        "Chain KeenPbrTable (1 references)\n"
+        "    pkts      bytes target     prot opt in     out     source               destination\n"
+        "  120000 80000000 MARK       all  --  br0    *       0.0.0.0/0            0.0.0.0/0            match-set kpbrm_1 dst MARK xset 0x20000/0xff0000\n"
+        "   36492  9250344 MARK       all  --  br0    *       0.0.0.0/0            0.0.0.0/0            match-set kpbrm_0 dst MARK xset 0x50000/0xff0000\n";
+    const auto result = parse_rule_traffic(reordered);
+    REQUIRE(result.size() == 2);
+    CHECK(result[0].index == 0u);
+    CHECK(result[1].index == 1u);
+}
+
+TEST_CASE("rule_traffic: RETURN and ACCEPT lines are not counted") {
+    // kpbrm_0 appears only on a RETURN line: it carries no MARK xset target, so
+    // it must produce no rule entry at all.
+    const char* only_return =
+        "Chain KeenPbrTable (1 references)\n"
+        "    pkts      bytes target     prot opt in     out     source               destination\n"
+        "   10146  1470889 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            mark match ! 0x0\n"
+        "   36492  9250344 RETURN     all  --  br0    *       0.0.0.0/0            0.0.0.0/0            match-set kpbrm_0 dst\n";
+    const auto result = parse_rule_traffic(only_return);
+    CHECK(result.empty());
+}
+
+TEST_CASE("rule_traffic: non-kpbrm match-set clauses are ignored") {
+    // A MARK rule that matches a kpbrd_<list> domain set (not a kpbrm_<N> rule
+    // set) must not be miscounted as a rule.
+    const char* other_set =
+        "Chain KeenPbrTable (1 references)\n"
+        "    pkts      bytes target     prot opt in     out     source               destination\n"
+        "     500     6000 MARK       all  --  br0    *       0.0.0.0/0            0.0.0.0/0            match-set kpbrd_openai dst MARK xset 0x50000/0xff0000\n";
+    const auto result = parse_rule_traffic(other_set);
+    CHECK(result.empty());
+}
+
+TEST_CASE("rule_traffic: empty input yields empty result") {
+    CHECK(parse_rule_traffic("").empty());
+}
+
+TEST_CASE("rule_traffic: malformed lines are skipped without crashing") {
+    const char* malformed =
+        "this is not a rule at all\n"
+        "MARK xset\n"
+        "   abc   def MARK all -- br0 * match-set kpbrm_0 dst MARK xset 0x50000/0xff0000\n"  // bad counters
+        "   100   200 MARK all -- br0 * match-set kpbrm_x dst MARK xset 0x50000/0xff0000\n"   // non-numeric index
+        "\n"
+        "   100   200 MARK all -- br0 * match-set kpbrm_3 dst MARK xset 0x50000/0xff0000\n";  // valid
+    const auto result = parse_rule_traffic(malformed);
+    REQUIRE(result.size() == 1);
+    CHECK(result[0].index == 3u);
     CHECK(result[0].packets == 100u);
     CHECK(result[0].bytes == 200u);
 }
