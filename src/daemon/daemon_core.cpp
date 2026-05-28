@@ -432,13 +432,14 @@ void Daemon::refresh_iproute_and_firewall_runtime() {
     } catch (const std::exception& e) {
         log.error("Runtime iproute and firewall refresh failed: {}", e.what());
     }
-    // Always invalidate stale conntrack: even when the firewall reapply itself
-    // failed (partial state), the operator's intent was a refresh — give the
-    // next packet a chance to re-route. Errors inside the flush are logged
-    // by the flusher itself and never propagate back to the event loop.
-    if (conntrack_flusher_) {
-        conntrack_flusher_->flush_async();
-    }
+    // NOTE: deliberately NO conntrack flush here. This path runs on every NDM
+    // netfilter event (via the netfilter.d hook -> SIGUSR1) and uses
+    // FirewallApplyMode::PreserveSets — ipset membership is unchanged, so no
+    // routing decision changed and there are no stale flows to invalidate.
+    // Flushing here would walk the whole conntrack table + rebuild the ipset
+    // snapshot on every netfilter event, which is exactly the load a weak
+    // MIPS router can't afford. The flush lives only where membership/routing
+    // actually changes: config-apply and urltest-selection-change.
 }
 
 bool Daemon::is_interface_outbound_in_use(const std::string& interface_name) const {
