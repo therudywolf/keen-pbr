@@ -28,6 +28,20 @@ if [ -d "$LEGACY_DIR" ] && [ ! -f "$MIGRATED_MARKER" ]; then
             echo "  migrated: $f"
         fi
     done
+    # Repoint dnsmasq.conf at the new hook so DNS-driven ipset population keeps
+    # working after the legacy keen-pbr package is removed. Without this, the
+    # conf-script line in /opt/etc/dnsmasq.conf would point at the deleted
+    # /opt/usr/lib/keen-pbr/dnsmasq.sh and dnsmasq would silently drop our
+    # managed config entries on the next restart.
+    if [ -f "$DNSMASQ_CONF" ] && grep -q '/opt/usr/lib/keen-pbr/dnsmasq.sh' "$DNSMASQ_CONF" 2>/dev/null; then
+        echo "Forest-PBR: repointing dnsmasq.conf hook keen-pbr -> forest-pbr..."
+        sed -i \
+            -e 's|/opt/usr/lib/keen-pbr/dnsmasq.sh|/opt/usr/lib/forest-pbr/dnsmasq.sh|g' \
+            -e 's|BEGIN keen-pbr managed block|BEGIN forest-pbr managed block|g' \
+            -e 's|END keen-pbr managed block|END forest-pbr managed block|g' \
+            "$DNSMASQ_CONF"
+    fi
+
     touch "$MIGRATED_MARKER"
     echo "Forest-PBR: migration complete. After confirming forest-pbr works:"
     echo "  opkg remove keen-pbr   # clean up the legacy install"
