@@ -134,6 +134,38 @@ ensure_ipset_modules_loaded() {
     log_error "$IPSET_COMPONENTS_MESSAGE Required probe failed: ipset create $IPSET_PROBE_SET hash:net family inet -exist"
 }
 
+# Pre-warm the IPv6 stack and the IPv6 netfilter tables the daemon needs.
+#
+# On Keenetic 4.9 / Entware mipsel-3.4 the kernel ships IPv6 and its iptables
+# bits as on-demand modules. NDM does not load them eagerly: ip6_tables /
+# ip6table_mangle only appear once something (a v6-bearing interface, an
+# ip6tables call) triggers them. If S80forest-pbr fires before that happens,
+# the daemon's first ipv6 probe sees no AF_INET6 socket family and no v6
+# mangle table, decides "IPv6 unsupported", and the v6 PBR scaffolding is
+# never built.
+#
+# This is best-effort: missing modules are not fatal because some hardware
+# genuinely lacks IPv6 (the daemon will then correctly stay IPv4-only).
+ensure_ipv6_modules_loaded() {
+    # Core protocol stack must come up before any of the netfilter tables can
+    # be created on top of it.
+    try_kernel_module_loaded ipv6 >/dev/null 2>&1 || true
+
+    # Conntrack/defrag — needed if any KeenPbr v6 rule ever wants to read
+    # connection state. Loading them is cheap and matches what NDM does once
+    # WAN6 lights up.
+    try_kernel_module_loaded nf_defrag_ipv6 >/dev/null 2>&1 || true
+    try_kernel_module_loaded nf_conntrack_ipv6 >/dev/null 2>&1 || true
+
+    # ip6_tables framework, then the specific tables we touch (only `mangle`
+    # is used for PBR today, but the `filter` table is what `ip6tables` lazy-
+    # initialises when called with no -t flag and its absence has been seen
+    # to confuse some probe paths).
+    try_kernel_module_loaded ip6_tables >/dev/null 2>&1 || true
+    try_kernel_module_loaded ip6table_filter >/dev/null 2>&1 || true
+    try_kernel_module_loaded ip6table_mangle >/dev/null 2>&1 || true
+}
+
 ensure_xt_multiport_loaded() {
     local module_path
 
@@ -149,6 +181,7 @@ ensure_xt_multiport_loaded() {
 check_runtime_dependencies() {
     check_netfilter_addons_component
     ensure_ipset_modules_loaded
+    ensure_ipv6_modules_loaded
     ensure_xt_multiport_loaded
 }
 

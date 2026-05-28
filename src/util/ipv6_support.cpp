@@ -5,17 +5,46 @@
 #include "safe_exec.hpp"
 
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace keen_pbr3 {
 
-bool system_ipv6_supported() {
-    const int fd = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (fd < 0) {
+namespace {
+
+// A truthy entry under /proc/sys/net/ipv6/ means the kernel has the IPv6
+// stack registered. On Keenetic 4.9 / Entware mipsel-3.4 the daemon has
+// occasionally been observed to start before the IPv6 module is fully
+// initialised even though `ipv6.ko` is present, in which case the bare
+// `socket(AF_INET6, ...)` probe transiently returns EAFNOSUPPORT. Treat the
+// /proc tree as the authoritative "kernel knows about v6" source so a brief
+// startup race no longer locks us into IPv4-only for the rest of the daemon
+// lifetime.
+bool proc_sysctl_ipv6_dir_present() {
+    struct stat st{};
+    if (::stat("/proc/sys/net/ipv6", &st) != 0) {
         return false;
     }
-    close(fd);
-    return true;
+    return S_ISDIR(st.st_mode);
+}
+
+} // namespace
+
+bool system_ipv6_supported() {
+    // Primary probe: open an AF_INET6 socket. Cheap, no fork, and the most
+    // direct signal that the protocol family is usable from userspace.
+    const int fd = socket(AF_INET6, SOCK_DGRAM, 0);
+    if (fd >= 0) {
+        close(fd);
+        return true;
+    }
+
+    // Secondary probe: /proc/sys/net/ipv6/ is created by the IPv6 stack when
+    // ipv6.ko is loaded (or compiled in). Some Keenetic builds expose the v6
+    // sysctl tree even when the bare socket() call momentarily fails (busy
+    // module-init path during boot, restrictive seccomp, etc.). If the kernel
+    // clearly knows about v6, do not declare the system v6-unsupported.
+    return proc_sysctl_ipv6_dir_present();
 }
 
 bool nft_ipv6_supported() {
