@@ -14,6 +14,7 @@ add_executable(keen-pbr-tests
   test_dns_probe_server.cpp
   test_list_set_usage.cpp
   test_list_service.cpp
+  test_list_warmer.cpp
   test_http_client.cpp
   test_config_validation.cpp
   test_list_parser.cpp
@@ -58,6 +59,7 @@ add_executable(keen-pbr-tests
   ../src/lists/kernel_set_tester.cpp
   ../src/lists/list_streamer.cpp
   ../src/lists/list_set_usage.cpp
+  ../src/lists/list_warmer.cpp
   ../src/config/list_parser.cpp
   ../src/cmd/test_routing.cpp
   ../src/daemon/list_service.cpp

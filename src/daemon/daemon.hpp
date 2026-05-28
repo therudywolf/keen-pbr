@@ -36,6 +36,7 @@ class Firewall;
 class Scheduler;
 class UrltestManager;
 class DnsProbeServer;
+class ListWarmer;
 struct DnsProbeEvent;
 
 #ifdef WITH_API
@@ -180,6 +181,10 @@ private:
     void restart_routing_runtime();
     void run_system_resolver_hook_reload();
     void schedule_lists_autoupdate();
+    // (Re-)install the background list-warmer task. Cancels any prior task and
+    // schedules a fresh repeating warm_once() at the configured interval.
+    // No-op when warming is disabled (interval=0) or no lists carry domains.
+    void schedule_list_warmer();
     ListsRefreshExecutionResult execute_remote_list_refresh(
         const std::set<std::string>* target_lists = nullptr);
     void refresh_lists_and_maybe_reload();
@@ -264,6 +269,9 @@ private:
     int resolver_config_hash_actual_retry_task_id_{-1};
     // Debounced runtime refresh triggered by SIGUSR1.
     int sigusr1_refresh_task_id_{-1};
+    // Periodic background warm-up of the dnsmasq-populated ipsets — see
+    // ListWarmer for the cache-bypass rationale.
+    int list_warmer_task_id_{-1};
 
     // Epoll state
     int epoll_fd_{-1};
@@ -321,6 +329,7 @@ private:
     OutboundMarkMap outbound_marks_;
     std::unique_ptr<Scheduler> scheduler_;
     std::unique_ptr<UrltestManager> urltest_manager_;
+    std::unique_ptr<ListWarmer> list_warmer_;
     BlockingExecutor blocking_executor_{2, 64};
     std::atomic<std::uint64_t> runtime_generation_{1};
     std::atomic<bool> remote_list_refresh_inflight_{false};

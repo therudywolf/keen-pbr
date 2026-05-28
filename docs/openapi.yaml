@@ -365,6 +365,27 @@ components:
             lists. Defaults to 8 MiB.
           default: 8388608
           example: 8388608
+        list_warmer_interval_seconds:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: >
+            Cadence in seconds at which the daemon re-resolves each list's domains
+            via a direct public-resolver query (bypassing dnsmasq's cache) and
+            refreshes the matching kpbr*d_<list> ipset entries. Set to 0 to disable
+            warming. Defaults to 600 (10 minutes) when omitted or null.
+          default: 600
+          example: 600
+        list_warmer_upstream_dns:
+          type: string
+          nullable: true
+          description: >
+            Public DNS resolver address used by the list warmer. May be a bare
+            IPv4 ("1.1.1.1") or "ip:port" form. Must NOT point at the local
+            dnsmasq, since the entire point of the warmer is to bypass that
+            cache. Defaults to "1.1.1.1" when omitted or null.
+          default: "1.1.1.1"
+          example: "1.1.1.1"
 
     ApiConfig:
       type: object

@@ -598,6 +598,12 @@ Config parse_config(const std::string& json_str) {
         parsed_json, "daemon", "skip_marked_packets", "daemon.skip_marked_packets", issues);
     validate_optional_boolean_field(
         parsed_json, "daemon", "ipv6_enabled", "daemon.ipv6_enabled", issues);
+    validate_optional_integer_field(
+        parsed_json, "daemon", "list_warmer_interval_seconds",
+        "daemon.list_warmer_interval_seconds", issues);
+    validate_optional_string_field(
+        parsed_json, "daemon", "list_warmer_upstream_dns",
+        "daemon.list_warmer_upstream_dns", issues);
     validate_route_rule_specs(parsed_json, issues);
     validate_route_inbound_interfaces(parsed_json, issues);
 
@@ -633,6 +639,12 @@ void validate_config(const Config& cfg) {
         *cfg.daemon->max_file_size_bytes <= 0) {
         add_issue(issues, "daemon.max_file_size_bytes",
                   "daemon.max_file_size_bytes must be greater than 0");
+    }
+
+    if (cfg.daemon && cfg.daemon->list_warmer_interval_seconds.has_value() &&
+        *cfg.daemon->list_warmer_interval_seconds < 0) {
+        add_issue(issues, "daemon.list_warmer_interval_seconds",
+                  "daemon.list_warmer_interval_seconds must be >= 0");
     }
 
     if (cfg.lists_autoupdate) {

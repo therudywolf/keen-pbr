@@ -15,6 +15,7 @@
 
 #include "../firewall/firewall.hpp"
 #include "../firewall/firewall_verifier.hpp"
+#include "../lists/list_warmer.hpp"
 #include "../log/logger.hpp"
 #include "../util/daemon_signals.hpp"
 #include "../dns/dns_probe_server.hpp" // IWYU pragma: keep
@@ -602,6 +603,10 @@ void Daemon::run() {
         log.info("Firewall rules and routing applied.");
 
         schedule_lists_autoupdate();
+        // Bypasses dnsmasq's cache to refresh dynamic ipset entries even when
+        // clients never touch dnsmasq (DoH/DoT) or cache-hit answers. See
+        // ListWarmer for the full rationale.
+        schedule_list_warmer();
 
         update_resolver_config_hash();
         refresh_resolver_config_hash_actual_async();

@@ -121,6 +121,8 @@ namespace api {
         std::optional<DaemonConfigFirewallBackend> firewall_backend;
         std::optional<int64_t> firewall_verify_max_bytes;
         std::optional<bool> ipv6_enabled;
+        std::optional<int64_t> list_warmer_interval_seconds;
+        std::optional<std::string> list_warmer_upstream_dns;
         std::optional<int64_t> max_file_size_bytes;
         std::optional<std::string> pid_file;
         std::optional<bool> skip_marked_packets;
@@ -743,6 +745,8 @@ namespace api {
         x.firewall_backend = get_stack_optional<DaemonConfigFirewallBackend>(j, "firewall_backend");
         x.firewall_verify_max_bytes = get_stack_optional<int64_t>(j, "firewall_verify_max_bytes");
         x.ipv6_enabled = get_stack_optional<bool>(j, "ipv6_enabled");
+        x.list_warmer_interval_seconds = get_stack_optional<int64_t>(j, "list_warmer_interval_seconds");
+        x.list_warmer_upstream_dns = get_stack_optional<std::string>(j, "list_warmer_upstream_dns");
         x.max_file_size_bytes = get_stack_optional<int64_t>(j, "max_file_size_bytes");
         x.pid_file = get_stack_optional<std::string>(j, "pid_file");
         x.skip_marked_packets = get_stack_optional<bool>(j, "skip_marked_packets");
@@ -755,6 +759,8 @@ namespace api {
         j["firewall_backend"] = x.firewall_backend;
         j["firewall_verify_max_bytes"] = x.firewall_verify_max_bytes;
         j["ipv6_enabled"] = x.ipv6_enabled;
+        j["list_warmer_interval_seconds"] = x.list_warmer_interval_seconds;
+        j["list_warmer_upstream_dns"] = x.list_warmer_upstream_dns;
         j["max_file_size_bytes"] = x.max_file_size_bytes;
         j["pid_file"] = x.pid_file;
         j["skip_marked_packets"] = x.skip_marked_packets;

@@ -8,6 +8,7 @@
 #include "../config/routing_state.hpp"
 #include "../firewall/firewall.hpp"
 #include "../firewall/firewall_runtime.hpp"
+#include "../lists/list_warmer.hpp"
 #include "../log/logger.hpp"
 #include "../routing/urltest_manager.hpp"
 #include "../util/ipv6_support.hpp"
@@ -259,6 +260,69 @@ void Daemon::schedule_lists_autoupdate() {
     Logger::instance().info("Lists autoupdate scheduled (next: ~{}s)", delay.count());
 }
 
+void Daemon::schedule_list_warmer() {
+    // Cancel any previous schedule first — config reloads land here repeatedly.
+    if (list_warmer_task_id_ >= 0) {
+        scheduler_->cancel(list_warmer_task_id_);
+        list_warmer_task_id_ = -1;
+    }
+
+    const auto daemon_cfg = config_.daemon.value_or(DaemonConfig{});
+    const int64_t interval_seconds = daemon_cfg.list_warmer_interval_seconds.value_or(600);
+    if (interval_seconds <= 0) {
+        Logger::instance().info("List warmer disabled (interval=0)");
+        list_warmer_.reset();
+        return;
+    }
+
+    // Nothing to warm if no list carries a `domains` field — the warmer would
+    // run, find no work, and quietly idle. Skip the bookkeeping entirely.
+    bool any_domain_list = false;
+    if (config_.lists.has_value()) {
+        for (const auto& [name, list_cfg] : *config_.lists) {
+            if (list_cfg.domains.has_value() && !list_cfg.domains->empty()) {
+                any_domain_list = true;
+                break;
+            }
+        }
+    }
+    if (!any_domain_list) {
+        Logger::instance().info("List warmer: no domain-bearing lists, idle");
+        list_warmer_.reset();
+        return;
+    }
+
+    ListWarmer::Settings settings;
+    settings.interval = std::chrono::seconds{interval_seconds};
+    settings.upstream_dns_ip =
+        daemon_cfg.list_warmer_upstream_dns.value_or(settings.upstream_dns_ip);
+
+    const auto interval_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(settings.interval);
+
+    // Hot-reload safety: the warmer captures a const-ref accessor rather than
+    // a snapshot of cfg.lists. Each warm_once() reads the daemon's current
+    // config_, so adding/removing lists at runtime is picked up automatically.
+    list_warmer_ = std::make_unique<ListWarmer>(
+        std::move(settings),
+        [this]() -> const Config& { return config_; },
+        &blocking_executor_);
+    list_warmer_task_id_ = scheduler_->schedule_repeating(
+        interval_ms,
+        [this]() {
+            if (!list_warmer_) return;
+            const int queued = list_warmer_->warm_once();
+            if (queued > 0) {
+                Logger::instance().trace("list_warmer_pass", "queued={}", queued);
+            }
+        },
+        "list-warmer");
+
+    Logger::instance().info("List warmer scheduled (interval={}s, upstream={})",
+                            interval_seconds,
+                            list_warmer_->settings().upstream_dns_ip);
+}
+
 ListsRefreshExecutionResult Daemon::execute_remote_list_refresh(
     const std::set<std::string>* target_lists) {
     auto& log = Logger::instance();
@@ -479,6 +543,10 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
         scheduler_->cancel(resolver_config_hash_actual_retry_task_id_);
         resolver_config_hash_actual_retry_task_id_ = -1;
     }
+    if (list_warmer_task_id_ >= 0) {
+        scheduler_->cancel(list_warmer_task_id_);
+        list_warmer_task_id_ = -1;
+    }
 
     outbound_marks_ = std::move(prepared.outbound_marks);
     config_ = std::move(prepared.config);
@@ -498,6 +566,7 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
     apply_firewall(FirewallApplyMode::Destructive);
     schedule_keenetic_dns_refresh();
     schedule_lists_autoupdate();
+    schedule_list_warmer();
     update_resolver_config_hash();
     setup_dns_probe();
     run_system_resolver_hook_reload();

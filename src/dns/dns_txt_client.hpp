@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace keen_pbr3 {
 
@@ -43,5 +44,21 @@ bool is_valid_resolver_config_hash_txt_value(const ResolverConfigHashTxtValue& v
 ResolverConfigHashProbeResult query_resolver_config_hash_txt(const std::string& dns_server_address,
                                                             const std::string& domain,
                                                             std::chrono::milliseconds timeout);
+
+// Query A (IPv4) records for a domain from a specific resolver, bypassing the
+// system stub resolver and any dnsmasq cache. Returns dotted-quad addresses.
+// On failure (timeout, NXDOMAIN, malformed response) returns an empty vector;
+// error_out (if provided) is populated with a human-readable reason.
+std::vector<std::string> query_dns_a_records(const std::string& dns_server_address,
+                                             const std::string& domain,
+                                             std::chrono::milliseconds timeout,
+                                             std::string* error_out = nullptr);
+
+// Query AAAA (IPv6) records for a domain from a specific resolver. Returns
+// canonical IPv6 strings (inet_ntop output). Empty result on failure.
+std::vector<std::string> query_dns_aaaa_records(const std::string& dns_server_address,
+                                                const std::string& domain,
+                                                std::chrono::milliseconds timeout,
+                                                std::string* error_out = nullptr);
 
 } // namespace keen_pbr3
