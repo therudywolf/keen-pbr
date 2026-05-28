@@ -17,7 +17,11 @@ namespace keen_pbr3 {
 
 namespace {
 
-constexpr auto kResolverConfigHashActualRefreshInterval = std::chrono::seconds{5};
+// 30s poll: upstream's 5s is too aggressive for weak MIPS routers (KN-1011);
+// at 5s the TXT probe runs 6x more often, burning CPU on a long-polling daemon
+// that already throttles via the inflight flag. 30s is the historical default
+// and matches the timescale at which dnsmasq config actually changes.
+constexpr auto kResolverConfigHashActualRefreshInterval = std::chrono::seconds{30};
 
 bool dns_config_uses_keenetic_server(const std::optional<DnsConfig>& dns_cfg_opt) {
     if (!dns_cfg_opt.has_value()) {
