@@ -103,12 +103,13 @@ export const enTranslation = {
       },
       nav: {
         groups: {
-          general: "General",
-          internet: "Internet",
-          networkRules: "Traffic Rules",
+          overview: "Overview",
+          routing: "Routing",
+          settings: "Settings",
         },
         items: {
           systemMonitor: "Dashboard",
+          metrics: "Metrics",
           settings: "Settings",
           outbounds: "Outbounds",
           services: "Services",
@@ -477,6 +478,12 @@ export const enTranslation = {
             check: "Check",
             selectOutbound: "Select outbound",
           },
+          batch: {
+            checkAll: "Check all",
+            progress: "Checked {{done}} / {{total}}",
+            summaryLeaking: "{{count}} leaking to WAN",
+            summaryClean: "All clean",
+          },
           leak: {
             ok: "OK",
             leaking: "Leaking to {{outbound}}",
@@ -494,6 +501,38 @@ export const enTranslation = {
           noMatches: {
             title: "No services match your search",
             description: "Try a different name or clear the search box.",
+          },
+        },
+        metrics: {
+          title: "Metrics",
+          description:
+            "Live traffic counters per outbound, straight from the routing runtime.",
+          headline: {
+            vpn: "Through VPN",
+            wan: "Through WAN",
+            vpnSubtitle: "{{tag}}",
+            wanSubtitle: "{{tag}}",
+            packets: "{{count}} packets",
+            noData: "No traffic counted yet.",
+          },
+          table: {
+            title: "Per-outbound traffic",
+          },
+          headers: {
+            tag: "Outbound",
+            bytes: "Bytes",
+            packets: "Packets",
+            fwmark: "fwmark",
+          },
+          unavailable: {
+            title: "// metrics not available yet",
+            description:
+              "This build's routing runtime does not expose traffic counters yet. They will appear here once the metrics endpoint is deployed.",
+          },
+          empty: {
+            title: "// no traffic counted yet",
+            description:
+              "Outbound traffic counters are all zero. Send some traffic and they will show up here.",
           },
         },
         routingRules: {

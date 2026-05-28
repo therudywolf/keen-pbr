@@ -21,6 +21,9 @@ const ListUpsertPage = lazy(() =>
 const ListsPage = lazy(() =>
   import("@/pages/lists-page").then((m) => ({ default: m.ListsPage })),
 )
+const MetricsPage = lazy(() =>
+  import("@/pages/metrics-page").then((m) => ({ default: m.MetricsPage })),
+)
 const OutboundUpsertPage = lazy(() =>
   import("@/pages/outbound-upsert-page").then((m) => ({
     default: m.OutboundUpsertPage,
@@ -63,6 +66,7 @@ function App() {
         <ScrollToTopOnRouteChange />
         <Switch>
           <Route component={OverviewPage} path="/" />
+          <Route component={MetricsPage} path="/metrics" />
           <Route component={GeneralConfigPage} path="/general" />
           <Route path="/lists/create">
             <ListUpsertPage mode="create" />

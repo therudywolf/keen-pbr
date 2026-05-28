@@ -104,12 +104,13 @@ export const ruTranslation = {
       },
       nav: {
         groups: {
-          general: "Общее",
-          internet: "Интернет",
-          networkRules: "Правила трафика",
+          overview: "Обзор",
+          routing: "Маршрутизация",
+          settings: "Настройки",
         },
         items: {
-          systemMonitor: "Обзор системы",
+          systemMonitor: "Монитор",
+          metrics: "Метрики",
           settings: "Настройки",
           outbounds: "Outbounds (выходы)",
           services: "Сервисы",
@@ -486,6 +487,12 @@ export const ruTranslation = {
             check: "Проверить",
             selectOutbound: "Выберите outbound",
           },
+          batch: {
+            checkAll: "Проверить все",
+            progress: "Проверено {{done}} / {{total}}",
+            summaryLeaking: "{{count}} течёт в WAN",
+            summaryClean: "Всё чисто",
+          },
           leak: {
             ok: "OK",
             leaking: "Течёт в {{outbound}}",
@@ -504,6 +511,38 @@ export const ruTranslation = {
           noMatches: {
             title: "Нет сервисов по вашему запросу",
             description: "Попробуйте другое имя или очистите поле поиска.",
+          },
+        },
+        metrics: {
+          title: "Метрики",
+          description:
+            "Актуальные счётчики трафика по каждому outbound прямо из среды маршрутизации.",
+          headline: {
+            vpn: "Через VPN",
+            wan: "Через WAN",
+            vpnSubtitle: "{{tag}}",
+            wanSubtitle: "{{tag}}",
+            packets: "Пакетов: {{count}}",
+            noData: "Трафик ещё не учтён.",
+          },
+          table: {
+            title: "Трафик по outbound",
+          },
+          headers: {
+            tag: "Outbound",
+            bytes: "Байты",
+            packets: "Пакеты",
+            fwmark: "fwmark",
+          },
+          unavailable: {
+            title: "// метрики пока недоступны",
+            description:
+              "Среда маршрутизации этой сборки ещё не отдаёт счётчики трафика. Они появятся здесь, как только будет развёрнут endpoint метрик.",
+          },
+          empty: {
+            title: "// трафик ещё не учтён",
+            description:
+              "Все счётчики трафика по outbound равны нулю. Пропустите немного трафика — и они появятся здесь.",
           },
         },
         routingRules: {

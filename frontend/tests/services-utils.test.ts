@@ -1,13 +1,31 @@
 import { describe, expect, test } from "bun:test"
 
 import type { RouteRule } from "../src/api/generated/model/routeRule"
+import type { RoutingTestResponse } from "../src/api/generated/model/routingTestResponse"
 import {
+  evaluateLeakCheck,
   findIpv4LeakRow,
   getServiceEntryCount,
   getServiceLeakCheckTarget,
   getServiceOutbound,
   reassignServiceOutbound,
+  runServiceLeakCheck,
+  runWithConcurrency,
 } from "../src/pages/services-utils"
+
+function buildRoutingTestResponse(
+  results: RoutingTestResponse["results"],
+): RoutingTestResponse {
+  return {
+    target: "example.com",
+    is_domain: true,
+    resolved_ips: results.map((row) => row.ip),
+    warnings: [],
+    no_matching_rule: false,
+    rule_diagnostics: [],
+    results,
+  }
+}
 
 describe("getServiceOutbound", () => {
   test("returns outbound of first enabled rule referencing the service", () => {
@@ -141,5 +159,114 @@ describe("findIpv4LeakRow", () => {
     const rows = [{ ip: "8.8.8.8", ok: true, actual_outbound: "vpn" }]
 
     expect(findIpv4LeakRow(rows)).toBeUndefined()
+  })
+})
+
+describe("evaluateLeakCheck", () => {
+  test("reports leaking with the failing IPv4 row's actual outbound", () => {
+    const response = buildRoutingTestResponse([
+      { ip: "8.8.8.8", ok: false, actual_outbound: "rostelecom", expected_outbound: "forestserver_ru" },
+    ])
+
+    expect(evaluateLeakCheck(response)).toEqual({
+      status: "leaking",
+      actualOutbound: "rostelecom",
+    })
+  })
+
+  test("reports ok when no IPv4 row leaks", () => {
+    const response = buildRoutingTestResponse([
+      { ip: "8.8.8.8", ok: true, actual_outbound: "forestserver_ru", expected_outbound: "forestserver_ru" },
+    ])
+
+    expect(evaluateLeakCheck(response)).toEqual({ status: "ok" })
+  })
+})
+
+describe("runServiceLeakCheck", () => {
+  test("maps a 200 response into a verdict", async () => {
+    const response = buildRoutingTestResponse([
+      { ip: "1.1.1.1", ok: false, actual_outbound: "rostelecom", expected_outbound: "forestserver_ru" },
+    ])
+
+    const verdict = await runServiceLeakCheck("example.com", async () => ({
+      status: 200,
+      data: response,
+    }))
+
+    expect(verdict).toEqual({ status: "leaking", actualOutbound: "rostelecom" })
+  })
+
+  test("treats a non-200 status as an error verdict", async () => {
+    const verdict = await runServiceLeakCheck("example.com", async () => ({
+      status: 400,
+      data: { error: "bad target" },
+    }))
+
+    expect(verdict).toEqual({ status: "error" })
+  })
+
+  test("treats a thrown request as an error verdict", async () => {
+    const verdict = await runServiceLeakCheck("example.com", async () => {
+      throw new Error("network down")
+    })
+
+    expect(verdict).toEqual({ status: "error" })
+  })
+})
+
+describe("runWithConcurrency", () => {
+  test("processes every item and reports each result", async () => {
+    const items = [1, 2, 3, 4, 5]
+    const processed: number[] = []
+    let results = 0
+
+    await runWithConcurrency(
+      items,
+      2,
+      async (item) => {
+        processed.push(item)
+      },
+      { onResult: () => (results += 1) },
+    )
+
+    expect(processed.sort((a, b) => a - b)).toEqual(items)
+    expect(results).toBe(items.length)
+  })
+
+  test("never exceeds the concurrency limit in flight", async () => {
+    const items = Array.from({ length: 10 }, (_, index) => index)
+    let inFlight = 0
+    let peak = 0
+
+    await runWithConcurrency(items, 3, async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await Promise.resolve()
+      inFlight -= 1
+    })
+
+    expect(peak).toBeLessThanOrEqual(3)
+  })
+
+  test("stops launching new work once shouldStop returns true", async () => {
+    const items = [1, 2, 3, 4, 5, 6]
+    const processed: number[] = []
+    let stop = false
+
+    await runWithConcurrency(
+      items,
+      1,
+      async (item) => {
+        processed.push(item)
+        if (item === 2) {
+          stop = true
+        }
+      },
+      { shouldStop: () => stop },
+    )
+
+    // With concurrency 1 and a stop after item 2, items 3+ never start.
+    expect(processed).toEqual([1, 2])
   })
 })

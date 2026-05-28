@@ -1,5 +1,13 @@
 import type { ListConfig } from "@/api/generated/model/listConfig"
 import type { RouteRule } from "@/api/generated/model/routeRule"
+import type { RoutingTestResponse } from "@/api/generated/model/routingTestResponse"
+
+/** Verdict shown on a service row's leak badge. */
+export type LeakCheckState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ok" }
+  | { status: "leaking"; actualOutbound: string }
 
 /** A route rule counts as enabled unless it is explicitly `false`. */
 function isRuleEnabled(rule: RouteRule): boolean {
@@ -111,4 +119,79 @@ export function findIpv4LeakRow<
 function isIpv4(ip: string): boolean {
   // IPv4 dotted-quad; IPv6 contains ":" so this naturally excludes it.
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)
+}
+
+/** Maps a routing-test response into a leak verdict for a service row. */
+export function evaluateLeakCheck(
+  diagnostics: RoutingTestResponse
+): LeakCheckState {
+  const leakRow = findIpv4LeakRow(diagnostics.results)
+
+  return leakRow
+    ? { status: "leaking", actualOutbound: leakRow.actual_outbound }
+    : { status: "ok" }
+}
+
+/**
+ * Runs the leak check for a single service target. `runTest` performs the
+ * actual routing-test request (so both single-row and batch callers share this
+ * verdict logic and the same error/200 handling). Never throws: request
+ * failures collapse to an `error` verdict.
+ */
+export async function runServiceLeakCheck(
+  target: string,
+  runTest: (target: string) => Promise<
+    | { status: 200; data: RoutingTestResponse }
+    | { status: number; data: unknown }
+  >
+): Promise<LeakCheckState> {
+  try {
+    const response = await runTest(target)
+
+    return response.status === 200
+      ? evaluateLeakCheck(response.data as RoutingTestResponse)
+      : { status: "error" }
+  } catch {
+    return { status: "error" }
+  }
+}
+
+/**
+ * Runs `worker` over `items` with at most `concurrency` in flight at once, in
+ * source order. Each settled item invokes `onResult` so callers can update UI
+ * incrementally. `shouldStop` is polled before starting each item, letting a
+ * caller cancel an in-progress batch (already-running items still settle, but
+ * no new ones are started). Resolves once the queue drains or is cancelled.
+ */
+export async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+  options?: {
+    onResult?: () => void
+    shouldStop?: () => boolean
+  }
+): Promise<void> {
+  const limit = Math.max(1, Math.floor(concurrency))
+  let cursor = 0
+
+  const runNext = async (): Promise<void> => {
+    while (cursor < items.length) {
+      if (options?.shouldStop?.()) {
+        return
+      }
+
+      const item = items[cursor]
+      cursor += 1
+
+      await worker(item)
+      options?.onResult?.()
+    }
+  }
+
+  const runners = Array.from({ length: Math.min(limit, items.length) }, () =>
+    runNext()
+  )
+
+  await Promise.all(runners)
 }

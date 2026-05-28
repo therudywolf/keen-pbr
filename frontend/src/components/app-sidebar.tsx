@@ -1,7 +1,7 @@
 "use client"
 
 import type { ComponentProps } from "react"
-import { LayoutGridIcon, ShieldIcon, WaypointsIcon } from "lucide-react"
+import { LayoutGridIcon, SettingsIcon, WaypointsIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { LanguageSelector } from "@/components/language-selector"
@@ -23,7 +23,7 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
   const data = {
     navMain: [
       {
-        title: t("nav.groups.general"),
+        title: t("nav.groups.overview"),
         url: "#",
         icon: LayoutGridIcon,
         items: [
@@ -32,38 +32,42 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             url: "/",
           },
           {
-            title: t("nav.items.settings"),
-            url: "/general",
+            title: t("nav.items.metrics"),
+            url: "/metrics",
           },
         ],
       },
       {
-        title: t("nav.groups.internet"),
+        title: t("nav.groups.routing"),
         url: "#",
         icon: WaypointsIcon,
-        items: [
-          {
-            title: t("nav.items.outbounds"),
-            url: "/outbounds",
-          },
-        ],
-      },
-      {
-        title: t("nav.groups.networkRules"),
-        url: "#",
-        icon: ShieldIcon,
         items: [
           {
             title: t("nav.items.services"),
             url: "/services",
           },
           {
-            title: t("nav.items.lists"),
-            url: "/lists",
+            title: t("nav.items.outbounds"),
+            url: "/outbounds",
           },
           {
             title: t("nav.items.routingRules"),
             url: "/routing-rules",
+          },
+          {
+            title: t("nav.items.lists"),
+            url: "/lists",
+          },
+        ],
+      },
+      {
+        title: t("nav.groups.settings"),
+        url: "#",
+        icon: SettingsIcon,
+        items: [
+          {
+            title: t("nav.items.settings"),
+            url: "/general",
           },
         ],
       },
