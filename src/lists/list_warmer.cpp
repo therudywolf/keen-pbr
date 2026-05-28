@@ -30,11 +30,13 @@ bool default_ipset_add(const std::string& set_name,
     if (ips.empty()) {
         return true;
     }
-    // Build a multi-line `ipset restore` script: one add-line per IP, all into
-    // the same set. `-exist` makes the add a no-op (just-refreshes-timeout) when
-    // the entry is already there. Piping the whole batch to a single
-    // `ipset restore -` subprocess collapses N forks into 1 — critical for the
-    // weak MIPS routers this daemon targets.
+    // Build a multi-line script and pipe to `ipset -! restore`. The `-!` is
+    // the GLOBAL "ignore errors" flag (equivalent to per-command `-exist`)
+    // and is the only form that ipset's restore parser actually accepts on
+    // this kernel/ipset combo (busybox + Entware mipsel-3.4, ipset v7.24).
+    // Per-line `-exist` is silently rejected with rc=2 in restore mode. Piping
+    // the whole batch into ONE `ipset` subprocess collapses N forks into 1 —
+    // critical for the weak MIPS routers this daemon targets.
     std::string script;
     script.reserve(ips.size() * 64);
     for (const auto& ip : ips) {
@@ -42,14 +44,13 @@ bool default_ipset_add(const std::string& set_name,
         script += set_name;
         script += ' ';
         script += ip;
-        script += " -exist";
         if (timeout_seconds > 0) {
             script += " timeout ";
             script += std::to_string(timeout_seconds);
         }
         script += '\n';
     }
-    const int rc = safe_exec_pipe_stdin({"ipset", "restore", "-"}, script);
+    const int rc = safe_exec_pipe_stdin({"ipset", "-!", "restore"}, script);
     if (rc != 0) {
         // Log at warn so kernel/ipset breakage is visible. `ipset restore`
         // returning non-zero is rare on a healthy router; the named set being
