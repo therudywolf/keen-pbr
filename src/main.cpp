@@ -320,7 +320,7 @@ int main(int argc, char* argv[]) {
 
         // Construct Daemon with all subsystems and run
         if (opts.run_service) {
-            logger.info("keen-pbr {} starting...", KEEN_PBR3_VERSION_STRING);
+            logger.info("forest-pbr {} starting...", KEEN_PBR3_VERSION_STRING);
             keen_pbr3::DaemonOptions daemon_opts;
             daemon_opts.no_api = opts.no_api;
 

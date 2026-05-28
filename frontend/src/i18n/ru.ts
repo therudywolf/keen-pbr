@@ -120,7 +120,7 @@ export const ruTranslation = {
       },
       brand: {
         logoAlt: "логотип Forest-PBR",
-        tagline: "ядро keen-pbr · маршрутизация ⌁",
+        tagline: "ядро forest-pbr · маршрутизация ⌁",
         openMenu: "Открыть меню",
       },
       warning: {

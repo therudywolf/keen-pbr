@@ -119,7 +119,7 @@ export const enTranslation = {
       },
       brand: {
         logoAlt: "Forest-PBR logo",
-        tagline: "keen-pbr core · policy routing ⌁",
+        tagline: "forest-pbr core · policy routing ⌁",
         openMenu: "Open menu",
       },
       warning: {
