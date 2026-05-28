@@ -6,6 +6,11 @@ GCC_BUILD_DIR := cmake-build-gcc
 CLANG_BUILD_DIR := cmake-build-clang
 ORVAL_VERSION := $(shell sed -n 's/.*"orval": "\([^"]*\)".*/\1/p' frontend/package.json | head -1)
 
+# Parallel build jobs. `cmake --build` without --parallel defaults to 1 with the
+# Make generator, which makes single-target test builds painfully slow on hosts
+# with idle cores. Override with `make JOBS=N`.
+JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
 # Prefer an explicitly installed compiler when available; C++17 is required.
 GCC_CXX ?= $(shell command -v g++-13 2>/dev/null || command -v g++-12 2>/dev/null || command -v g++ 2>/dev/null || echo g++)
 CLANG_CXX ?= clang++
@@ -30,9 +35,9 @@ all: build ## Build for host (native)
 setup: ## Configure CMake
 	cmake -S . -B $(GCC_BUILD_DIR) $(GCC_CMAKE_FLAGS)
 
-build: ## Compile the project
+build: ## Compile the project (parallel; override jobs with JOBS=N)
 	cmake -S . -B $(GCC_BUILD_DIR) $(GCC_CMAKE_FLAGS)
-	cmake --build $(GCC_BUILD_DIR)
+	cmake --build $(GCC_BUILD_DIR) --parallel $(JOBS)
 
 frontend-build: ## Build frontend assets with bun
 	bash build_scripts/build-frontend.sh "$(abspath .)" "$(abspath frontend/dist)"
@@ -43,9 +48,9 @@ frontend-api-generate: ## Regenerate frontend API client using the Orval version
 generate: ## Regenerate src/api/generated/api_types.hpp from docs/openapi.yaml (requires Node.js)
 	bash build_scripts/generate_api_types.sh
 
-test: ## Build and run unit tests (doctest)
+test: ## Build and run unit tests (doctest) — parallel; override with JOBS=N
 	cmake -S . -B $(GCC_BUILD_DIR) $(GCC_CMAKE_FLAGS) -DBUILD_TESTS=ON
-	cmake --build $(GCC_BUILD_DIR) --target keen-pbr-tests crash-diagnostics-smoke
+	cmake --build $(GCC_BUILD_DIR) --target keen-pbr-tests crash-diagnostics-smoke --parallel $(JOBS)
 	$(GCC_BUILD_DIR)/tests/keen-pbr-tests
 	$(GCC_BUILD_DIR)/tests/crash-diagnostics-smoke
 
@@ -58,11 +63,11 @@ firewall-it: ## Run the Docker + netns firewall integration suite (builds images
 
 clang-build: ## Configure and compile with Clang in a host-only build dir
 	cmake -S . -B $(CLANG_BUILD_DIR) $(CLANG_CMAKE_FLAGS) $(CLANG_FEATURE_CMAKE_FLAGS)
-	cmake --build $(CLANG_BUILD_DIR) --target keen-pbr
+	cmake --build $(CLANG_BUILD_DIR) --target keen-pbr --parallel $(JOBS)
 
 clang-check: ## Compile with Clang thread-safety analysis enabled; never runs binaries
 	cmake -S . -B $(CLANG_BUILD_DIR) $(CLANG_CMAKE_FLAGS) $(CLANG_FEATURE_CMAKE_FLAGS) -DBUILD_TESTS=ON -DENABLE_THREAD_SAFETY_ANALYSIS=ON
-	cmake --build $(CLANG_BUILD_DIR) --target keen-pbr keen-pbr-tests thread-safety-smoke
+	cmake --build $(CLANG_BUILD_DIR) --target keen-pbr keen-pbr-tests thread-safety-smoke --parallel $(JOBS)
 
 CLANGD_TIDY_ARGS ?=
 

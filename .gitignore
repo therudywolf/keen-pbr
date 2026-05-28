@@ -24,3 +24,8 @@ cmake-build-*/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Private working docs (per-install audits, host snapshots, scratch)
+docs/lists-audit.md
+.claude/user-config-snapshot.json
+.claude/*-snapshot.json
