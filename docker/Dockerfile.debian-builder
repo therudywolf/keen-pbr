@@ -15,6 +15,7 @@ RUN apt-get update && \
       gnupg \
       libcurl4-openssl-dev \
       libfmt-dev \
+      libnetfilter-queue-dev \
       libnl-3-dev \
       libnl-route-3-dev \
       libunwind-dev \
