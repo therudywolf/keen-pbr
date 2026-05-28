@@ -90,9 +90,14 @@ const LIST_SOURCE_GROUP_FIELDS = {
   inline: [LIST_FIELD_NAMES.domains, LIST_FIELD_NAMES.ipCidrs],
 } satisfies Record<ListSourceGroup, ListFieldName[]>
 
+// 24h default — keeps DNS-resolved ipset members alive longer than the typical
+// dnsmasq cache TTL (5 min), so a wildcard like youtube.com still has its
+// previously-seen IPs in the set when a client connects to a long-cached IP.
+// 2h (the historical default) routinely expired entries that browsers and OS
+// resolvers still remembered, causing PBR to silently miss those flows.
 const sampleNewList: ListDraft = {
   name: "",
-  ttlMs: "7200000",
+  ttlMs: "86400000",
   detour: "",
   domains: "",
   ipCidrs: "",
