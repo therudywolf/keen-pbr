@@ -157,6 +157,37 @@ export async function runServiceLeakCheck(
 }
 
 /**
+ * Collects the inline domains of every service whose latest leak verdict is
+ * `leaking`, deduped and sorted, for the auto-heal "fix detected leaks" flow.
+ *
+ * Only `domains` are promoted (the auto-heal list is domain-based); IP-only
+ * services contribute nothing. Services missing from `lists`, services with no
+ * inline domains, and non-leaking verdicts are skipped. The result is stable
+ * (sorted) so the confirm prompt and request payload read deterministically.
+ */
+export function collectLeakingDomains(
+  leakChecks: Record<string, LeakCheckState | undefined>,
+  lists: Record<string, ListConfig>
+): string[] {
+  const collected = new Set<string>()
+
+  for (const [service, verdict] of Object.entries(leakChecks)) {
+    if (verdict?.status !== "leaking") {
+      continue
+    }
+
+    for (const domain of lists[service]?.domains ?? []) {
+      const trimmed = domain.trim()
+      if (trimmed.length > 0) {
+        collected.add(trimmed)
+      }
+    }
+  }
+
+  return [...collected].sort()
+}
+
+/**
  * Runs `worker` over `items` with at most `concurrency` in flight at once, in
  * source order. Each settled item invokes `onResult` so callers can update UI
  * incrementally. `shouldStop` is polled before starting each item, letting a

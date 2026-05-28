@@ -2,11 +2,12 @@ import type { ReactNode } from "react"
 import { useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
-import { ShieldCheck, Wifi } from "lucide-react"
+import { ShieldCheck, Sparkles, Wifi } from "lucide-react"
 
 import type { ApiError } from "@/api/client"
 import { apiFetch } from "@/api/client"
 import { DataTable } from "@/components/shared/data-table"
+import { ListChips } from "@/components/shared/list-chips"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { PageHeader } from "@/components/shared/page-header"
 import { SectionCard } from "@/components/shared/section-card"
@@ -30,10 +31,29 @@ export interface TrafficMetricsOutbound {
   bytes: number
 }
 
+/** Per-rule traffic counters from `GET /api/metrics/traffic`. */
+export interface TrafficMetricsRule {
+  index: number
+  outbound: string
+  lists: string[]
+  packets: number
+  bytes: number
+}
+
 /** Response body of `GET /api/metrics/traffic`. */
 export interface TrafficMetricsResponse {
   outbounds: TrafficMetricsOutbound[]
+  /** Optional in older builds; absent/empty -> the per-rule section is hidden. */
+  rules?: TrafficMetricsRule[]
   note: string
+}
+
+/** Response body of `GET /api/autoheal`. */
+export interface AutohealResponse {
+  enabled: boolean
+  list: string
+  outbound: string
+  domains: string[]
 }
 
 /**
@@ -44,7 +64,12 @@ type TrafficMetricsResult =
   | { available: true; data: TrafficMetricsResponse }
   | { available: false }
 
+type AutohealResult =
+  | { available: true; data: AutohealResponse }
+  | { available: false }
+
 const TRAFFIC_METRICS_QUERY_KEY = ["/api/metrics/traffic"] as const
+const AUTOHEAL_QUERY_KEY = ["/api/autoheal"] as const
 
 async function fetchTrafficMetrics(
   signal: AbortSignal,
@@ -59,6 +84,25 @@ async function fetchTrafficMetrics(
   } catch (error) {
     // The endpoint ships in a parallel backend change; until then it 404s.
     // Treat that as a graceful "not available yet" state, not a hard error.
+    if ((error as ApiError | undefined)?.status === 404) {
+      return { available: false }
+    }
+
+    throw error
+  }
+}
+
+async function fetchAutoheal(signal: AbortSignal): Promise<AutohealResult> {
+  try {
+    const response = await apiFetch<{ data: AutohealResponse; status: number }>(
+      "/api/autoheal",
+      { method: "GET", signal },
+    )
+
+    return { available: true, data: response.data }
+  } catch (error) {
+    // Ships with the parallel backend change; until then it 404s. Same graceful
+    // "not available yet" handling as the traffic metrics query above.
     if ((error as ApiError | undefined)?.status === 404) {
       return { available: false }
     }
@@ -86,9 +130,21 @@ export function MetricsPage() {
     retry: 1,
   })
 
+  const autohealQuery = useQuery({
+    queryKey: AUTOHEAL_QUERY_KEY,
+    queryFn: ({ signal }) => fetchAutoheal(signal),
+    refetchInterval: pollTrafficMetrics,
+    refetchIntervalInBackground: false,
+    retry: 1,
+  })
+
   const result = metricsQuery.data
   const metrics = result?.available ? result.data : undefined
   const outbounds = useMemo(() => metrics?.outbounds ?? [], [metrics])
+  const rules = useMemo(() => metrics?.rules ?? [], [metrics])
+
+  const autohealResult = autohealQuery.data
+  const autoheal = autohealResult?.available ? autohealResult.data : undefined
 
   const vpn = useMemo(
     () => outbounds.find((outbound) => outbound.tag === VPN_OUTBOUND_TAG),
@@ -127,6 +183,41 @@ export function MetricsPage() {
           </span>,
         ]),
     [outbounds],
+  )
+
+  const ruleRows = useMemo(
+    () =>
+      [...rules]
+        .sort((a, b) => b.bytes - a.bytes)
+        .map((rule) => [
+          <span
+            className="font-mono font-medium tabular-nums"
+            key={`rule-${rule.index}-index`}
+          >
+            #{rule.index}
+          </span>,
+          <span className="font-mono" key={`rule-${rule.index}-outbound`}>
+            {rule.outbound}
+          </span>,
+          <ListChips
+            inlineLimit={3}
+            key={`rule-${rule.index}-lists`}
+            lists={rule.lists ?? []}
+          />,
+          <span
+            className="font-mono tabular-nums"
+            key={`rule-${rule.index}-bytes`}
+          >
+            {formatBytes(rule.bytes)}
+          </span>,
+          <span
+            className="font-mono tabular-nums text-muted-foreground"
+            key={`rule-${rule.index}-packets`}
+          >
+            {formatCount(rule.packets)}
+          </span>,
+        ]),
+    [rules],
   )
 
   return (
@@ -201,8 +292,34 @@ export function MetricsPage() {
               </p>
             ) : null}
           </SectionCard>
+
+          {ruleRows.length > 0 ? (
+            <SectionCard
+              terminalFilename="metrics.rules"
+              title={t("pages.metrics.rules.title")}
+            >
+              <DataTable
+                headers={[
+                  t("pages.metrics.rules.headers.rule"),
+                  t("pages.metrics.rules.headers.outbound"),
+                  t("pages.metrics.rules.headers.lists"),
+                  t("pages.metrics.rules.headers.bytes"),
+                  t("pages.metrics.rules.headers.packets"),
+                ]}
+                narrowColumns={[0, 3]}
+                rows={ruleRows}
+              />
+            </SectionCard>
+          ) : null}
         </div>
       )}
+
+      <AutohealCard
+        autoheal={autoheal}
+        isError={autohealQuery.isError}
+        isLoading={autohealQuery.isLoading}
+        t={t}
+      />
     </div>
   )
 }
@@ -251,6 +368,73 @@ function HeadlineCard({
             {t("pages.metrics.headline.noData")}
           </div>
         )}
+      </div>
+    </SectionCard>
+  )
+}
+
+/**
+ * Read-only auto-heal ("самолечение") status panel at the bottom of the page:
+ * shows whether self-healing is enabled, the auto list name + its outbound, and
+ * the currently auto-promoted domains. While the backend endpoint is undeployed
+ * it 404s (resolved to `autoheal === undefined` upstream) or errors transiently;
+ * in both cases the whole section is omitted rather than showing an error, so an
+ * older build's Metrics page is unchanged.
+ */
+function AutohealCard({
+  autoheal,
+  isLoading,
+  isError,
+  t,
+}: {
+  autoheal: AutohealResponse | undefined
+  isLoading: boolean
+  isError: boolean
+  t: TranslateFn
+}) {
+  if (isLoading || isError || !autoheal) {
+    return null
+  }
+
+  const domains = autoheal.domains ?? []
+
+  return (
+    <SectionCard
+      terminalFilename="metrics.autoheal"
+      title={t("pages.metrics.autoheal.title")}
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <Badge size="xs" variant={autoheal.enabled ? "success" : "secondary"}>
+            {autoheal.enabled
+              ? t("pages.metrics.autoheal.enabled")
+              : t("pages.metrics.autoheal.disabled")}
+          </Badge>
+          {autoheal.list ? (
+            <span className="font-mono text-xs text-muted-foreground">
+              {t("pages.metrics.autoheal.target", {
+                list: autoheal.list,
+                outbound: autoheal.outbound,
+              })}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="font-mono text-[11px] text-muted-foreground">
+            {t("pages.metrics.autoheal.domainsCount", {
+              count: domains.length,
+            })}
+          </div>
+          {domains.length > 0 ? (
+            <ListChips inlineLimit={12} lists={domains} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {t("pages.metrics.autoheal.empty")}
+            </p>
+          )}
+        </div>
       </div>
     </SectionCard>
   )

@@ -484,6 +484,15 @@ export const enTranslation = {
             summaryLeaking: "{{count}} leaking to WAN",
             summaryClean: "All clean",
           },
+          autofix: {
+            button: "Auto-fix leaks ({{count}})",
+            confirm:
+              "Add {{count}} domain(s) from the leaking services to the auto-list (VPN)? Apply the staged config afterwards to take effect.",
+            success:
+              "{{count}} domain(s) added to the auto-list (VPN); press Apply.",
+            sharedIpNote:
+              "Promoting a domain that shares an IP with a WAN-only service (e.g. Google Drive) can pull that neighbour to VPN too — a limitation of shared IPs.",
+          },
           leak: {
             ok: "OK",
             leaking: "Leaking to {{outbound}}",
@@ -523,6 +532,24 @@ export const enTranslation = {
             bytes: "Bytes",
             packets: "Packets",
             fwmark: "fwmark",
+          },
+          rules: {
+            title: "Per-rule traffic",
+            headers: {
+              rule: "Rule",
+              outbound: "Outbound",
+              lists: "Lists",
+              bytes: "Bytes",
+              packets: "Packets",
+            },
+          },
+          autoheal: {
+            title: "Auto-list (self-healing)",
+            enabled: "Enabled",
+            disabled: "Disabled",
+            target: "{{list}} → {{outbound}}",
+            domainsCount: "{{count}} auto-promoted domain(s)",
+            empty: "No domains have been auto-promoted yet.",
           },
           unavailable: {
             title: "// metrics not available yet",

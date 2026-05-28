@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import type { RouteRule } from "../src/api/generated/model/routeRule"
 import type { RoutingTestResponse } from "../src/api/generated/model/routingTestResponse"
 import {
+  collectLeakingDomains,
   evaluateLeakCheck,
   findIpv4LeakRow,
   getServiceEntryCount,
@@ -212,6 +213,51 @@ describe("runServiceLeakCheck", () => {
     })
 
     expect(verdict).toEqual({ status: "error" })
+  })
+})
+
+describe("collectLeakingDomains", () => {
+  test("gathers deduped, sorted domains from leaking services only", () => {
+    const leakChecks = {
+      youtube: { status: "leaking", actualOutbound: "rostelecom" } as const,
+      netflix: { status: "ok" } as const,
+      discord: { status: "leaking", actualOutbound: "rostelecom" } as const,
+      vimeo: { status: "loading" } as const,
+    }
+    const lists = {
+      youtube: { domains: ["youtube.com", "ytimg.com"] },
+      netflix: { domains: ["netflix.com"] },
+      discord: { domains: ["discord.com", "youtube.com"] },
+    }
+
+    expect(collectLeakingDomains(leakChecks, lists)).toEqual([
+      "discord.com",
+      "youtube.com",
+      "ytimg.com",
+    ])
+  })
+
+  test("skips services missing from lists and those without inline domains", () => {
+    const leakChecks = {
+      ipset_only: { status: "leaking", actualOutbound: "wan" } as const,
+      ghost: { status: "leaking", actualOutbound: "wan" } as const,
+    }
+    const lists = {
+      ipset_only: { ip_cidrs: ["1.2.3.0/24"] },
+    }
+
+    expect(collectLeakingDomains(leakChecks, lists)).toEqual([])
+  })
+
+  test("returns an empty array when nothing is leaking", () => {
+    const leakChecks = {
+      youtube: { status: "ok" } as const,
+    }
+    const lists = {
+      youtube: { domains: ["youtube.com"] },
+    }
+
+    expect(collectLeakingDomains(leakChecks, lists)).toEqual([])
   })
 })
 

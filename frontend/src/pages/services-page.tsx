@@ -1,10 +1,11 @@
-import { Loader2, Search, ShieldAlert, ShieldCheck, X } from "lucide-react"
+import { Loader2, Search, ShieldAlert, ShieldCheck, Sparkles, X } from "lucide-react"
 import { useCallback, useMemo, useRef, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
 import type { ApiError } from "@/api/client"
+import { apiFetch } from "@/api/client"
 import type { RuntimeOutboundState } from "@/api/generated/model"
 import type { ListConfig } from "@/api/generated/model/listConfig"
 import {
@@ -14,6 +15,7 @@ import {
   useConfigMutationPending,
 } from "@/api/mutations"
 import { useGetConfig, useGetRuntimeOutbounds } from "@/api/queries"
+import { invalidationKeysAfterConfigMutation } from "@/api/query-keys"
 import { selectConfig } from "@/api/selectors"
 import { ConfigSaveErrorAlert } from "@/components/shared/config-save-error-alert"
 import { DataTable } from "@/components/shared/data-table"
@@ -26,12 +28,18 @@ import { TableSkeleton } from "@/components/shared/table-skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { getApiErrorMessage } from "@/lib/api-errors"
 import {
   ROUTER_RUNTIME_POLL_MS,
   routerFriendlyPollingMs,
 } from "@/lib/router-friendly-query"
 import {
+  collectLeakingDomains,
   getServiceEntryCount,
   getServiceLeakCheckTarget,
   getServiceOutbound,
@@ -51,6 +59,34 @@ const BATCH_LEAK_CHECK_CONCURRENCY = 3
 type BatchProgress = {
   done: number
   total: number
+}
+
+/** Response body of `POST /api/autoheal/promote`. */
+interface AutohealPromoteResponse {
+  added: string[]
+  list: string
+  staged: true
+}
+
+/**
+ * Stages the given domains into the auto-heal list (a config draft, committed
+ * later by the global Apply banner). Returns the parsed body. The endpoint
+ * ships with a parallel backend change; until then it 404s and the mutation's
+ * onError surfaces a friendly message rather than crashing the page.
+ */
+async function postAutohealPromote(
+  domains: string[],
+): Promise<AutohealPromoteResponse> {
+  const response = await apiFetch<{
+    data: AutohealPromoteResponse
+    status: number
+  }>("/api/autoheal/promote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains }),
+  })
+
+  return response.data
 }
 
 export function ServicesPage() {
@@ -105,6 +141,9 @@ export function ServicesPage() {
   const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null)
   // Set true to ask an in-flight "Check all" run to stop launching new checks.
   const batchCancelledRef = useRef(false)
+  // Gate the "Auto-fix leaks" button so it only appears after a finished
+  // "Check all" run (a single-row check shouldn't surface a bulk fix action).
+  const [checkAllCompleted, setCheckAllCompleted] = useState(false)
 
   const services = useMemo(
     () => Object.entries(loadedConfig?.lists ?? {}),
@@ -133,6 +172,35 @@ export function ServicesPage() {
   })
 
   const routingTestMutation = usePostRoutingTestMutation()
+
+  // Domains of every service whose latest verdict is "leaking", deduped + sorted.
+  const leakingDomains = useMemo(
+    () => collectLeakingDomains(leakChecks, loadedConfig?.lists ?? {}),
+    [leakChecks, loadedConfig?.lists],
+  )
+
+  const autohealPromoteMutation = useMutation<
+    AutohealPromoteResponse,
+    ApiError,
+    string[]
+  >({
+    mutationKey: ["autohealPromote"],
+    mutationFn: (domains: string[]) => postAutohealPromote(domains),
+    onSuccess: async (data) => {
+      // Staging a config draft — refresh config state so the global Apply banner
+      // shows, exactly like other config mutations on this page.
+      for (const queryKey of invalidationKeysAfterConfigMutation) {
+        await queryClient.invalidateQueries({ queryKey })
+      }
+      toast.success(
+        t("pages.services.autofix.success", { count: data.added.length }),
+        { richColors: true },
+      )
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error), { richColors: true })
+    },
+  })
 
   const handleOutboundChange = (service: string, targetOutbound: string) => {
     if (!loadedConfig || !targetOutbound) {
@@ -222,6 +290,8 @@ export function ServicesPage() {
     }
 
     batchCancelledRef.current = false
+    // Hide the auto-fix button until this fresh run finishes with results.
+    setCheckAllCompleted(false)
     setBatchProgress({ done: 0, total: testable.length })
 
     // Tally verdicts as they settle so the summary is a pure post-run effect
@@ -261,6 +331,10 @@ export function ServicesPage() {
       return
     }
 
+    // A full run finished with results: allow the auto-fix button to appear if
+    // anything is leaking.
+    setCheckAllCompleted(true)
+
     if (leakingCount > 0) {
       toast.warning(
         t("pages.services.batch.summaryLeaking", { count: leakingCount }),
@@ -272,6 +346,21 @@ export function ServicesPage() {
       })
     }
   }, [filteredServices, isBatchRunning, runLeakCheckForService, t])
+
+  const handleAutofixLeaks = useCallback(() => {
+    if (autohealPromoteMutation.isPending || leakingDomains.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      t("pages.services.autofix.confirm", { count: leakingDomains.length }),
+    )
+    if (!confirmed) {
+      return
+    }
+
+    autohealPromoteMutation.mutate(leakingDomains)
+  }, [autohealPromoteMutation, leakingDomains, t])
 
   const handleCancelBatch = useCallback(() => {
     batchCancelledRef.current = true
@@ -365,6 +454,38 @@ export function ServicesPage() {
             </div>
 
             <div className="flex items-center gap-2 sm:shrink-0">
+              {!isBatchRunning &&
+              checkAllCompleted &&
+              leakingDomains.length > 0 ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label={t("pages.services.autofix.button", {
+                          count: leakingDomains.length,
+                        })}
+                        disabled={autohealPromoteMutation.isPending}
+                        onClick={handleAutofixLeaks}
+                        size="sm"
+                        variant="default"
+                      />
+                    }
+                  >
+                    {autohealPromoteMutation.isPending ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1 h-4 w-4" />
+                    )}
+                    {t("pages.services.autofix.button", {
+                      count: leakingDomains.length,
+                    })}
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-left">
+                    {t("pages.services.autofix.sharedIpNote")}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+
               {isBatchRunning ? (
                 <>
                   <span

@@ -493,6 +493,15 @@ export const ruTranslation = {
             summaryLeaking: "{{count}} течёт в WAN",
             summaryClean: "Всё чисто",
           },
+          autofix: {
+            button: "Авто-исправить утечки ({{count}})",
+            confirm:
+              "Добавить {{count}} домен(ов) из протекающих сервисов в авто-список (VPN)? После этого нажмите Применить, чтобы изменения вступили в силу.",
+            success:
+              "{{count}} доменов добавлено в авто-список (VPN); нажми Применить.",
+            sharedIpNote:
+              "Если у домена общий IP с сервисом, который должен идти только через WAN (например, Google Drive), такой сосед тоже может уйти в VPN — это ограничение общих IP.",
+          },
           leak: {
             ok: "OK",
             leaking: "Течёт в {{outbound}}",
@@ -533,6 +542,24 @@ export const ruTranslation = {
             bytes: "Байты",
             packets: "Пакеты",
             fwmark: "fwmark",
+          },
+          rules: {
+            title: "Трафик по правилам",
+            headers: {
+              rule: "Правило",
+              outbound: "Outbound",
+              lists: "Списки",
+              bytes: "Байты",
+              packets: "Пакеты",
+            },
+          },
+          autoheal: {
+            title: "Авто-список (самолечение)",
+            enabled: "Включено",
+            disabled: "Выключено",
+            target: "{{list}} → {{outbound}}",
+            domainsCount: "Авто-добавленных доменов: {{count}}",
+            empty: "Домены ещё не добавлялись автоматически.",
           },
           unavailable: {
             title: "// метрики пока недоступны",
