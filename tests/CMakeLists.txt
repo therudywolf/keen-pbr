@@ -16,6 +16,7 @@ add_executable(keen-pbr-tests
   test_list_service.cpp
   test_list_warmer.cpp
   test_conntrack_flush.cpp
+  test_sni_parser.cpp
   test_http_client.cpp
   test_config_validation.cpp
   test_list_parser.cpp
@@ -69,6 +70,7 @@ add_executable(keen-pbr-tests
   ../src/http/http_client.cpp
   ../src/routing/netlink.cpp
   ../src/routing/conntrack_flush.cpp
+  ../src/routing/sni_parser.cpp
   ../src/util/blocking_executor.cpp
   ../src/util/firewall_backend_utils.cpp
   ../src/util/ipv6_support.cpp
