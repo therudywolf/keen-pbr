@@ -7,7 +7,7 @@
 # This script is intended to run INSIDE the entware-builder Docker container
 # after build-keenetic-package.sh has completed.
 #
-# <workspace-dir>    Root of the keen-pbr source tree (contains version.mk, scripts/)
+# <workspace-dir>    Root of the forest-pbr source tree (contains version.mk, scripts/)
 # <entware-bin-dir>  Entware bin output directory (e.g. /home/me/Entware/bin)
 # <release-dir>      Directory where repository-layout artifacts are written
 # <config-name>      Entware config name, e.g. "mipsel-3.4"
@@ -32,16 +32,16 @@ mkdir -p "$DEBUG_DEST_DIR"
 
 # ── Copy and rename packages ──────────────────────────────────────────────────
 
-find "$ENTWARE_BIN_DIR" -type f -path '*/packages/*.ipk' -name 'keen-pbr_*.ipk' | while read -r f; do
-    cp "$f" "$DEST_DIR/keen-pbr_${VERSION_RELEASE}_keenetic_${CONFIG_NAME}.ipk"
+find "$ENTWARE_BIN_DIR" -type f -path '*/packages/*.ipk' -name 'forest-pbr_*.ipk' | while read -r f; do
+    cp "$f" "$DEST_DIR/forest-pbr_${VERSION_RELEASE}_keenetic_${CONFIG_NAME}.ipk"
 done
-find "$ENTWARE_BIN_DIR" -type f -path '*/packages/*.ipk' -name 'keen-pbr-headless_*.ipk' | while read -r f; do
-    cp "$f" "$DEST_DIR/keen-pbr-headless_${VERSION_RELEASE}_keenetic_${CONFIG_NAME}.ipk"
+find "$ENTWARE_BIN_DIR" -type f -path '*/packages/*.ipk' -name 'forest-pbr-headless_*.ipk' | while read -r f; do
+    cp "$f" "$DEST_DIR/forest-pbr-headless_${VERSION_RELEASE}_keenetic_${CONFIG_NAME}.ipk"
 done
 
-find "$ENTWARE_ROOT" -type f -path '*/debug-artifacts/*/keen-pbr.debug' | while read -r f; do
+find "$ENTWARE_ROOT" -type f -path '*/debug-artifacts/*/forest-pbr.debug' | while read -r f; do
     variant="$(basename "$(dirname "$f")")"
-    cp "$f" "$DEBUG_DEST_DIR/keen-pbr_${VERSION_RELEASE}_keenetic_${CONFIG_NAME}_${variant}.debug"
+    cp "$f" "$DEBUG_DEST_DIR/forest-pbr_${VERSION_RELEASE}_keenetic_${CONFIG_NAME}_${variant}.debug"
 done
 
 # ── Generate IPK Packages index ───────────────────────────────────────────────

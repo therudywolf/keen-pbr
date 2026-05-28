@@ -1,14 +1,14 @@
 #!/bin/sh
 
-. /opt/etc/keen-pbr/defaults
+. /opt/etc/forest-pbr/defaults
 
 ENABLED=yes
 PROCS=$(basename "$KEEN_PBR")
-PIDFILE="/opt/var/run/keen-pbr.pid"
+PIDFILE="/opt/var/run/forest-pbr.pid"
 ARGS="--config $CONFIG --pid-file $PIDFILE service"
 PREARGS=""
 POSTCMD=""
-DESC="keen-pbr"
+DESC="forest-pbr"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 IPSET_PROBE_SET="kpbr_probe_hash_net"
 IPSET_COMPONENTS_MESSAGE="ipset kernel modules are not available. Make sure that you followed the installation process and installed all required components: Netfilter Subsystem Kernel Modules and Xtables-addons Extension Package for Netfilter."
@@ -27,11 +27,11 @@ ensure_log_dir() {
 }
 
 log() {
-    logger -s -t "keen-pbr" "$1"
+    logger -s -t "forest-pbr" "$1"
 }
 
 log_error() {
-    logger -s -t "keen-pbr" -p "user.err" "$1"
+    logger -s -t "forest-pbr" -p "user.err" "$1"
 }
 
 is_module_loaded() {
@@ -169,22 +169,22 @@ signal_service() {
     local pid
 
     if [ ! -s "$PIDFILE" ]; then
-        log_error "Cannot send $signal to keen-pbr: PID file $PIDFILE is missing or empty"
+        log_error "Cannot send $signal to forest-pbr: PID file $PIDFILE is missing or empty"
         return 1
     fi
 
     read -r pid < "$PIDFILE"
     if [ -z "$pid" ]; then
-        log_error "Cannot send $signal to keen-pbr: PID file $PIDFILE does not contain a PID"
+        log_error "Cannot send $signal to forest-pbr: PID file $PIDFILE does not contain a PID"
         return 1
     fi
 
     if ! kill "-$signal" "$pid"; then
-        log_error "Failed to send $signal to keen-pbr PID $pid from $PIDFILE"
+        log_error "Failed to send $signal to forest-pbr PID $pid from $PIDFILE"
         return 1
     fi
 
-    log "Sent $signal to keen-pbr PID $pid"
+    log "Sent $signal to forest-pbr PID $pid"
 
     return 0
 }

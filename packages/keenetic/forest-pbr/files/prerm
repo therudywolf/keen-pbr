@@ -1,0 +1,7 @@
+#!/bin/sh
+
+echo "Stopping forest-pbr service..."
+/opt/etc/init.d/S80forest-pbr stop || true
+
+
+exit 0

@@ -28,7 +28,7 @@
 #include "util/daemon_signals.hpp"
 
 #ifndef KEEN_PBR_DEFAULT_CONFIG_PATH
-#define KEEN_PBR_DEFAULT_CONFIG_PATH "/etc/keen-pbr/config.json"
+#define KEEN_PBR_DEFAULT_CONFIG_PATH "/etc/forest-pbr/config.json"
 #endif
 
 namespace {

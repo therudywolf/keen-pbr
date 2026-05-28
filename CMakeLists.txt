@@ -68,11 +68,11 @@ option(WITH_API "Build with REST API support (cpp-httplib)" ON)
 option(USE_KEENETIC_API "Enable Keenetic RCI integration (DNS server type: keenetic)" OFF)
 option(ENABLE_THREAD_SAFETY_ANALYSIS "Enable Clang thread-safety diagnostics for project targets" OFF)
 option(KEEN_PBR_STATIC_LIBUNWIND "Prefer linking libunwind statically when a static archive is available" ON)
-set(KEEN_PBR_DEFAULT_CONFIG_PATH "${CMAKE_INSTALL_FULL_SYSCONFDIR}/keen-pbr/config.json" CACHE STRING
+set(KEEN_PBR_DEFAULT_CONFIG_PATH "${CMAKE_INSTALL_FULL_SYSCONFDIR}/forest-pbr/config.json" CACHE STRING
   "Default config file path used by keen-pbr when --config is not passed")
-set(KEEN_PBR_FRONTEND_ROOT "${CMAKE_INSTALL_FULL_DATADIR}/keen-pbr/frontend" CACHE STRING
+set(KEEN_PBR_FRONTEND_ROOT "${CMAKE_INSTALL_FULL_DATADIR}/forest-pbr/frontend" CACHE STRING
   "Default frontend static root served by API (SPA assets)")
-set(KEEN_PBR_SYSTEM_RESOLVER_HOOK "${CMAKE_INSTALL_FULL_LIBDIR}/keen-pbr/dnsmasq.sh" CACHE STRING
+set(KEEN_PBR_SYSTEM_RESOLVER_HOOK "${CMAKE_INSTALL_FULL_LIBDIR}/forest-pbr/dnsmasq.sh" CACHE STRING
   "System resolver hook command path compiled into keen-pbr")
 set(KEEN_PBR_TARGET_OS "linux" CACHE STRING
   "Compile-time target OS identity exposed via /api/health/service (for example: openwrt, keenetic, debian)")
@@ -307,6 +307,7 @@ configure_file(
 # Executable
 add_executable(keen-pbr ${SOURCES})
 set_target_properties(keen-pbr PROPERTIES
+  OUTPUT_NAME forest-pbr
   CXX_STANDARD 17
   CXX_STANDARD_REQUIRED YES
   CXX_EXTENSIONS NO
@@ -364,10 +365,10 @@ else()
 endif()
 
 install(FILES ${KEEN_PBR_PACKAGED_CONFIG}
-  DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/keen-pbr
+  DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/forest-pbr
   RENAME config.json)
 install(FILES ${CMAKE_SOURCE_DIR}/packages/common/local.lst
-  DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/keen-pbr)
+  DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/forest-pbr)
 
 # Unit tests (optional, requires doctest submodule)
 option(BUILD_TESTS "Build unit tests" OFF)

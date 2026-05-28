@@ -20,7 +20,7 @@
 #include "resolver_health.hpp"
 
 #ifndef KEEN_PBR_FRONTEND_ROOT
-#define KEEN_PBR_FRONTEND_ROOT "/usr/share/keen-pbr/frontend"
+#define KEEN_PBR_FRONTEND_ROOT "/usr/share/forest-pbr/frontend"
 #endif
 
 namespace keen_pbr3 {

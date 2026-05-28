@@ -2,17 +2,17 @@
 
 set -e
 
-KEEN_PBR_BIN="/opt/usr/bin/keen-pbr"
-CONFIG_PATH="/opt/etc/keen-pbr/config.json"
-DNSMASQ_FALLBACK_FILE="/opt/etc/keen-pbr/dnsmasq-fallback.conf"
-STATE_DIR="/tmp/keen-pbr"
+KEEN_PBR_BIN="/opt/usr/bin/forest-pbr"
+CONFIG_PATH="/opt/etc/forest-pbr/config.json"
+DNSMASQ_FALLBACK_FILE="/opt/etc/forest-pbr/dnsmasq-fallback.conf"
+STATE_DIR="/tmp/forest-pbr"
 ACTIVE_FILE="${STATE_DIR}/active"
 
 log_message() {
     local level="$1"
     local message="$2"
 
-    logger -s -t "keen-pbr" -p "user.${level}" "$message"
+    logger -s -t "forest-pbr" -p "user.${level}" "$message"
 }
 
 log_info() {
@@ -54,7 +54,7 @@ set_active_state() {
 emit_dnsmasq_config_entry() {
     if is_active; then
         active_conf_line
-        log_info "Produced dnsmasq keen-pbr managed config"
+        log_info "Produced dnsmasq forest-pbr managed config"
     else
         fallback_conf_line
         log_info "Produced dnsmasq fallback config entry"
@@ -63,13 +63,13 @@ emit_dnsmasq_config_entry() {
 
 activate_dnsmasq() {
     set_active_state "Y"
-    log_info "Marked keen-pbr dnsmasq state as active"
+    log_info "Marked forest-pbr dnsmasq state as active"
     restart_dnsmasq
 }
 
 deactivate_dnsmasq() {
     set_active_state "N"
-    log_info "Marked keen-pbr dnsmasq state as inactive"
+    log_info "Marked forest-pbr dnsmasq state as inactive"
     restart_dnsmasq
 }
 
@@ -116,8 +116,8 @@ Usage: $0 <command>
 
 Commands:
   dnsmasq-config-entry   Print the dnsmasq config entry for the current active state.
-  activate               Mark keen-pbr dnsmasq state active and restart dnsmasq.
-  deactivate             Mark keen-pbr dnsmasq state inactive and restart dnsmasq.
+  activate               Mark forest-pbr dnsmasq state active and restart dnsmasq.
+  deactivate             Mark forest-pbr dnsmasq state inactive and restart dnsmasq.
   restart-dnsmasq        Restart dnsmasq without changing helper-managed config.
   reload                 Alias for restart-dnsmasq; used by the system resolver hook.
   help                   Show this help text.

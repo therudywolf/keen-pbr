@@ -1,0 +1,88 @@
+#!/bin/sh
+
+DNSMASQ_CONF="/opt/etc/dnsmasq.conf"
+DNSMASQ_TEMPLATE="/opt/usr/lib/forest-pbr/dnsmasq.conf.template"
+DNSMASQ_BACKUP="/opt/etc/dnsmasq.conf.backup-pre-forest-pbr"
+
+LEGACY_INIT="/opt/etc/init.d/S80keen-pbr"
+LEGACY_DIR="/opt/etc/keen-pbr"
+NEW_DIR="/opt/etc/forest-pbr"
+MIGRATED_MARKER="$NEW_DIR/.migrated-from-keen-pbr"
+
+if [ -x "$LEGACY_INIT" ]; then
+    echo "Forest-PBR: stopping legacy keen-pbr service before takeover..."
+    "$LEGACY_INIT" stop 2>/dev/null || true
+fi
+
+if [ -d "$LEGACY_DIR" ] && [ ! -f "$MIGRATED_MARKER" ]; then
+    mkdir -p "$NEW_DIR"
+    echo "Forest-PBR: migrating user config $LEGACY_DIR -> $NEW_DIR ..."
+    for f in config.json local.lst dnsmasq-fallback.conf; do
+        if [ -f "$LEGACY_DIR/$f" ]; then
+            cp -f "$LEGACY_DIR/$f" "$NEW_DIR/$f"
+            echo "  migrated: $f"
+        fi
+    done
+    touch "$MIGRATED_MARKER"
+    echo "Forest-PBR: migration complete. After confirming forest-pbr works:"
+    echo "  opkg remove keen-pbr   # clean up the legacy install"
+fi
+
+echo "Forest-PBR (headless) installation"
+echo "----------------------------------"
+
+mkdir -p /opt/usr/lib/forest-pbr
+
+answer=""
+if [ -f "$DNSMASQ_TEMPLATE" ]; then
+    if [ -n "${FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS:-}" ]; then
+        answer="$FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS"
+    elif [ -n "${KEEN_PBR_REPLACE_DNSMASQ_DEFAULTS:-}" ]; then
+        answer="$KEEN_PBR_REPLACE_DNSMASQ_DEFAULTS"
+    elif [ -t 0 ] && [ -t 1 ]; then
+        echo "Tip: set FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS=Y or N to automate forest-pbr installation."
+        while :; do
+            printf "Replace %s with recommended Forest-PBR dnsmasq defaults? [y/n]: " "$DNSMASQ_CONF"
+            read answer || answer=""
+            case "$answer" in
+                y|Y|n|N)
+                    break
+                    ;;
+                *)
+                    echo "Please enter Y or N."
+                    ;;
+            esac
+        done
+    else
+        echo "Tip: set FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS=Y or N to automate forest-pbr installation."
+    fi
+fi
+
+case "$answer" in
+    y|Y)
+        if [ -f "$DNSMASQ_CONF" ]; then
+            printf "Backing up existing %s to %s\n" "$DNSMASQ_CONF" "$DNSMASQ_BACKUP"
+            cp "$DNSMASQ_CONF" "$DNSMASQ_BACKUP"
+        fi
+        printf "Installing recommended Forest-PBR dnsmasq base config to %s\n" "$DNSMASQ_CONF"
+        cp "$DNSMASQ_TEMPLATE" "$DNSMASQ_CONF"
+        ;;
+    n|N)
+        echo "Keeping existing dnsmasq base config unchanged."
+        ;;
+    "")
+        ;;
+    *)
+        printf "Ignoring invalid FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS value: %s. Use Y or N.\n" "$answer"
+        ;;
+esac
+
+echo ""
+/opt/etc/init.d/S80forest-pbr start || echo "Failed to start forest-pbr service"
+echo ""
+
+echo "Installation complete!"
+echo "Config path: /opt/etc/forest-pbr/config.json"
+echo "Web API is unavailable in the headless variant. Use CLI to manage forest-pbr."
+
+exit 0
