@@ -109,16 +109,34 @@ export function getServiceLeakCheckTarget(list: ListConfig): string | undefined 
   return domainLike ?? entries[0]
 }
 
-/** Returns the first IPv4 result row that failed (expected !== actual outbound), if any. */
+/**
+ * Returns the first ROUTABLE IPv4 result row that failed (expected !== actual
+ * outbound), if any. Non-routable answers are skipped: a DNS-blocked domain
+ * resolves to 0.0.0.0 (dnsmasq/AdGuard sinkhole) and never egresses anywhere, so
+ * an expected!=actual mismatch on it is meaningless noise, not a real leak —
+ * counting it would flag ad/sinkhole lists as "leaking" and pad the scanner.
+ */
 export function findIpv4LeakRow<
   T extends { ip: string; ok: boolean; actual_outbound: string },
 >(results: T[]): T | undefined {
-  return results.find((result) => isIpv4(result.ip) && !result.ok)
+  return results.find(
+    (result) => isIpv4(result.ip) && isRoutableIpv4(result.ip) && !result.ok,
+  )
 }
 
 function isIpv4(ip: string): boolean {
   // IPv4 dotted-quad; IPv6 contains ":" so this naturally excludes it.
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)
+}
+
+/**
+ * Excludes non-routable IPv4 answers from leak verdicts: 0.0.0.0 and the rest of
+ * the 0.0.0.0/8 "this host" block (the dnsmasq/AdGuard sinkhole reply for blocked
+ * domains) plus 127.0.0.0/8 loopback. None of these egress anywhere, so a routing
+ * "leak" verdict on them is noise rather than a real misroute.
+ */
+function isRoutableIpv4(ip: string): boolean {
+  return ip !== "0.0.0.0" && !ip.startsWith("0.") && !ip.startsWith("127.")
 }
 
 /** Maps a routing-test response into a leak verdict for a service row. */

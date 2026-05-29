@@ -164,6 +164,18 @@ describe("findIpv4LeakRow", () => {
 
     expect(findIpv4LeakRow(rows)).toBeUndefined()
   })
+
+  test("ignores non-routable 0.0.0.0 sinkhole and loopback rows", () => {
+    // DNS-blocked domains resolve to 0.0.0.0 — a failing row there is not a real
+    // leak (it egresses nowhere), so the scanner must not flag it.
+    const rows = [
+      { ip: "0.0.0.0", ok: false, actual_outbound: "rostelecom" },
+      { ip: "127.0.0.1", ok: false, actual_outbound: "rostelecom" },
+      { ip: "8.8.8.8", ok: true, actual_outbound: "vpn" },
+    ]
+
+    expect(findIpv4LeakRow(rows)).toBeUndefined()
+  })
 })
 
 describe("evaluateLeakCheck", () => {
