@@ -356,6 +356,42 @@ TEST_CASE("prune_fw_rule_states_to_realized_sets: removes nonexistent pass-throu
     }));
 }
 
+TEST_CASE("prune_fw_rule_states_to_realized_sets: ipv6 disabled keeps only ipv4 set variants") {
+    auto cfg = parse_minimal_config(R"({
+        "daemon":{"ipv6_enabled":false},
+        "outbounds":[
+            {"tag":"direct","type":"ignore"}
+        ],
+        "lists":{
+            "local":{"ip_cidrs":["192.168.0.0/16"]}
+        },
+        "route":{
+            "rules":[
+                {"list":["local"],"outbound":"direct"}
+            ]
+        }
+    })");
+
+    auto marks = allocate_outbound_marks(cfg.fwmark.value_or(FwmarkConfig{}),
+                                         cfg.outbounds.value_or(std::vector<Outbound>{}));
+    auto states = build_fw_rule_states(cfg, marks);
+
+    prune_fw_rule_states_to_realized_sets(
+        cfg,
+        states,
+        [](const std::string&, const ListConfig&) {
+            ListSetUsage usage;
+            usage.has_static_entries = true;
+            usage.has_domain_entries = false;
+            return usage;
+        });
+
+    REQUIRE(states.size() == 1);
+    // IPv6 explicitly off -> no kpbr6_local (otherwise the verifier reports a
+    // phantom v6 rule as MISSING and the status shows false DEGRADED).
+    CHECK(states[0].set_names == std::vector<std::string>({"kpbr4_local"}));
+}
+
 TEST_CASE("populate_routing_state: strict enforcement installs unreachable default when down") {
     auto cfg = parse_minimal_config(R"({
         "iproute":{"table_start":100},

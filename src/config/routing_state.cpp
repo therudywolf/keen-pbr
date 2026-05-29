@@ -589,6 +589,13 @@ void prune_fw_rule_states_to_realized_sets(
     const auto& route_rules =
         cfg.route.value_or(RouteConfig{}).rules.value_or(std::vector<RouteRule>{});
 
+    // Match the apply path: skip IPv6 set-names entirely when IPv6 is explicitly
+    // disabled, otherwise the verifier expects kpbr6_*/kpbr6d_* rules that were
+    // never installed (false MISSING / DEGRADED).
+    const bool ipv6_enabled = !(cfg.daemon.has_value()
+        && cfg.daemon->ipv6_enabled.has_value()
+        && !*cfg.daemon->ipv6_enabled);
+
     std::map<std::string, ListSetUsage> usage_cache;
 
     for (auto& rs : rule_states) {
@@ -616,11 +623,11 @@ void prune_fw_rule_states_to_realized_sets(
 
             if (usage.has_static_entries) {
                 rs.set_names.push_back("kpbr4_" + list_name);
-                rs.set_names.push_back("kpbr6_" + list_name);
+                if (ipv6_enabled) rs.set_names.push_back("kpbr6_" + list_name);
             }
             if (usage.has_domain_entries) {
                 rs.set_names.push_back("kpbr4d_" + list_name);
-                rs.set_names.push_back("kpbr6d_" + list_name);
+                if (ipv6_enabled) rs.set_names.push_back("kpbr6d_" + list_name);
             }
         }
     }
