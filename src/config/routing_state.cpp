@@ -458,6 +458,13 @@ std::vector<RuleState> build_fw_rule_states(
     const auto& route_rules =
         cfg.route.value_or(RouteConfig{}).rules.value_or(std::vector<RouteRule>{});
 
+    // Only expect IPv6 sets when IPv6 isn't explicitly disabled — mirrors the
+    // apply path (resolve_ipv6_support's config short-circuit) so status/verify
+    // don't flag phantom v6 rules as MISSING when the user turned IPv6 off.
+    const bool ipv6_enabled = !(cfg.daemon.has_value()
+        && cfg.daemon->ipv6_enabled.has_value()
+        && !*cfg.daemon->ipv6_enabled);
+
     for (size_t rule_idx = 0; rule_idx < route_rules.size(); ++rule_idx) {
         const auto& rule = route_rules[rule_idx];
 
@@ -512,9 +519,9 @@ std::vector<RuleState> build_fw_rule_states(
                 const std::string set6d = "kpbr6d_" + list_name;
 
                 rs.set_names.push_back(set4);
-                rs.set_names.push_back(set6);
+                if (ipv6_enabled) rs.set_names.push_back(set6);
                 rs.set_names.push_back(set4d);
-                rs.set_names.push_back(set6d);
+                if (ipv6_enabled) rs.set_names.push_back(set6d);
             }
 
             rule_states.push_back(std::move(rs));
@@ -562,9 +569,9 @@ std::vector<RuleState> build_fw_rule_states(
             const std::string set6d = "kpbr6d_" + list_name;
 
             rs.set_names.push_back(set4);
-            rs.set_names.push_back(set6);
+            if (ipv6_enabled) rs.set_names.push_back(set6);
             rs.set_names.push_back(set4d);
-            rs.set_names.push_back(set6d);
+            if (ipv6_enabled) rs.set_names.push_back(set6d);
         }
 
         rule_states.push_back(std::move(rs));

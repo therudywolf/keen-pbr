@@ -99,6 +99,35 @@ TEST_CASE("build_fw_rule_states: ignore outbound becomes pass-through firewall r
     }));
 }
 
+TEST_CASE("build_fw_rule_states: ipv6 disabled emits only ipv4 set names") {
+    auto cfg = parse_minimal_config(R"({
+        "daemon":{"ipv6_enabled":false},
+        "outbounds":[
+            {"tag":"vpn","type":"interface","interface":"nwg2"}
+        ],
+        "lists":{
+            "svc":{"domains":["example.com"]}
+        },
+        "route":{
+            "rules":[
+                {"list":["svc"],"outbound":"vpn"}
+            ]
+        }
+    })");
+
+    auto marks = allocate_outbound_marks(cfg.fwmark.value_or(FwmarkConfig{}),
+                                         cfg.outbounds.value_or(std::vector<Outbound>{}));
+    auto states = build_fw_rule_states(cfg, marks);
+
+    REQUIRE(states.size() == 1);
+    CHECK(states[0].action_type == RuleActionType::Mark);
+    // IPv6 explicitly off -> no kpbr6_* / kpbr6d_* expectations (so the
+    // verifier/status don't report phantom v6 rules as MISSING).
+    CHECK(states[0].set_names == std::vector<std::string>({
+        "kpbr4_svc", "kpbr4d_svc"
+    }));
+}
+
 TEST_CASE("build_fw_rule_states: disabled route rule is skipped while enabled rules stay active") {
     auto cfg = parse_minimal_config(R"({
         "outbounds":[
