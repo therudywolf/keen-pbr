@@ -439,17 +439,6 @@ FirewallGlobalPrefilter build_firewall_global_prefilter(const Config& cfg) {
     prefilter.skip_established_or_dnat = true;
     prefilter.skip_marked_packets = daemon_cfg.skip_marked_packets.value_or(true);
 
-    // DNS-correlation split routing. Strictly default-off: only when
-    // dns_split_enabled is explicitly true does the firewall emit the
-    // CONNMARK/NFQUEUE block (see IptablesFirewall::build_dns_split_lines).
-    if (daemon_cfg.dns_split_enabled.value_or(false)) {
-        prefilter.dns_split_enabled = true;
-        prefilter.dns_split_queue_num = static_cast<uint16_t>(
-            daemon_cfg.dns_split_queue_num.value_or(kDefaultDnsSplitQueueNum));
-        prefilter.dns_split_fwmark_mask =
-            fwmark_mask_value(cfg.fwmark.value_or(FwmarkConfig{}));
-    }
-
     const auto route_cfg = cfg.route.value_or(RouteConfig{});
     if (route_cfg.inbound_interfaces.has_value()
         && !route_cfg.inbound_interfaces->empty()) {

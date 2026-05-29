@@ -16,17 +16,9 @@ add_executable(keen-pbr-tests
   test_list_service.cpp
   test_list_warmer.cpp
   test_conntrack_flush.cpp
-  test_sni_parser.cpp
-  test_sni_classifier.cpp
-  test_sni_router.cpp
   test_traffic_counters.cpp
   test_autoheal.cpp
   test_autoheal_worker.cpp
-  test_tcp_payload.cpp
-  test_dnsmasq_reply_parser.cpp
-  test_dns_split_table.cpp
-  test_dns_split_observer.cpp
-  test_dns_split_domain_marks.cpp
   test_http_client.cpp
   test_config_validation.cpp
   test_list_parser.cpp
@@ -81,14 +73,6 @@ add_executable(keen-pbr-tests
   ../src/http/http_client.cpp
   ../src/routing/netlink.cpp
   ../src/routing/conntrack_flush.cpp
-  ../src/routing/sni_parser.cpp
-  ../src/routing/sni_classifier.cpp
-  ../src/routing/sni_router.cpp
-  ../src/routing/tcp_payload.cpp
-  ../src/routing/dns_split_table.cpp
-  ../src/routing/dns_split_observer.cpp
-  ../src/routing/dns_split_marks.cpp
-  ../src/dns/dnsmasq_reply_parser.cpp
   ../src/routing/autoheal.cpp
   ../src/routing/autoheal_worker.cpp
   ../src/metrics/traffic_counters.cpp

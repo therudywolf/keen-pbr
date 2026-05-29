@@ -145,15 +145,6 @@ else()
 endif()
 pkg_check_modules(LIBNL REQUIRED IMPORTED_TARGET libnl-3.0)
 pkg_check_modules(LIBNL_ROUTE REQUIRED IMPORTED_TARGET libnl-route-3.0)
-# libnetfilter_queue (optional): powers SNI-based routing via NFQUEUE. When the
-# dev package is absent (e.g. host/CI), keen-pbr still builds — the NFQUEUE
-# listener compiles to a no-op and the sni_routing feature stays unavailable.
-pkg_check_modules(LIBNFQUEUE IMPORTED_TARGET libnetfilter_queue)
-if(TARGET PkgConfig::LIBNFQUEUE)
-  message(STATUS "Found libnetfilter_queue: SNI routing (NFQUEUE) enabled")
-else()
-  message(STATUS "libnetfilter_queue not found: SNI routing (NFQUEUE) disabled")
-endif()
 set(HTTPLIB_ANL_LIB "")
 
 if(KEEN_PBR_HAS_LIBUNWIND)
@@ -245,16 +236,8 @@ set(SOURCES
   src/routing/target.cpp
   src/routing/netlink.cpp
   src/routing/conntrack_flush.cpp
-  src/routing/sni_parser.cpp
-  src/routing/sni_classifier.cpp
-  src/routing/sni_router.cpp
-  src/routing/tcp_payload.cpp
   src/routing/autoheal.cpp
   src/routing/autoheal_worker.cpp
-  src/routing/nfqueue_listener.cpp
-  src/routing/dns_split_table.cpp
-  src/routing/dns_split_observer.cpp
-  src/routing/dns_split_marks.cpp
   src/routing/interface_monitor.cpp
   src/routing/route_table.cpp
   src/routing/policy_rule.cpp
@@ -284,7 +267,6 @@ set(SOURCES
   src/dns/dns_probe_server.cpp
   src/dns/dns_router.cpp
   src/dns/dnsmasq_gen.cpp
-  src/dns/dnsmasq_reply_parser.cpp
   src/daemon/config_store.cpp
   src/daemon/daemon_core.cpp
   src/daemon/daemon_runtime.cpp
@@ -369,11 +351,6 @@ if(LIBATOMIC)
 endif()
 
 target_link_libraries(keen-pbr PRIVATE ${LIBRESOLV})
-
-if(TARGET PkgConfig::LIBNFQUEUE)
-  target_compile_definitions(keen-pbr PRIVATE KEEN_PBR_HAVE_NFQUEUE)
-  target_link_libraries(keen-pbr PRIVATE PkgConfig::LIBNFQUEUE)
-endif()
 
 if(WITH_API)
   target_compile_definitions(keen-pbr PRIVATE WITH_API)

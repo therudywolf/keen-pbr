@@ -95,11 +95,6 @@ private:
     // Build early RETURN lines for the global prefilter.
     static std::string build_prefilter_lines(
         const FirewallGlobalPrefilter& prefilter);
-    // Build the DNS-correlation split-routing lines (CONNMARK restore/save +
-    // NFQUEUE) for the IPv4 mangle chain. Only called when
-    // prefilter.dns_split_enabled is true.
-    static std::string build_dns_split_lines(
-        const FirewallGlobalPrefilter& prefilter);
     // Build the proto/port fragment for a single rule (single proto, not tcp/udp).
     static std::string build_proto_port_fragment(L4Proto proto,
                                                  const PortSpec& src_port,

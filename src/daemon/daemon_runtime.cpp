@@ -639,7 +639,6 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
     firewall_state_.set_fwmark_mask(fwmark_mask_value(config_.fwmark.value_or(FwmarkConfig{})));
 
     teardown_dns_probe();
-    teardown_dns_split();
 
     if (urltest_manager_) {
         urltest_manager_->clear();
@@ -656,10 +655,6 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
     schedule_autoheal_worker();
     update_resolver_config_hash();
     setup_dns_probe();
-    // DNS-correlation split routing. Started after apply_firewall above so the
-    // NFQUEUE iptables rule exists before the listener binds the queue. A strict
-    // no-op unless daemon.dns_split_enabled is true.
-    setup_dns_split();
     run_system_resolver_hook_reload();
     refresh_resolver_config_hash_actual_async();
     schedule_resolver_config_hash_actual_refresh();

@@ -19,9 +19,6 @@
 #include "../log/logger.hpp"
 #include "../routing/autoheal_worker.hpp"
 #include "../routing/conntrack_flush.hpp"
-#include "../routing/dns_split_observer.hpp" // IWYU pragma: keep
-#include "../routing/dns_split_table.hpp"    // IWYU pragma: keep
-#include "../routing/nfqueue_listener.hpp"   // IWYU pragma: keep
 #include "../util/daemon_signals.hpp"
 #include "../dns/dns_probe_server.hpp" // IWYU pragma: keep
 #include "scheduler.hpp"
@@ -635,9 +632,6 @@ void Daemon::run() {
         publish_runtime_state();
 
         setup_dns_probe();
-        // DNS-correlation split routing — strict no-op unless dns_split_enabled.
-        // Started after apply_firewall above so the NFQUEUE rule already exists.
-        setup_dns_split();
 
         if (interface_monitor_) {
             add_fd(interface_monitor_->fd(),
@@ -705,7 +699,6 @@ void Daemon::shutdown_runtime() {
 #endif
 
     guarded("dns-probe", [this]() { teardown_dns_probe(); });
-    guarded("dns-split", [this]() { teardown_dns_split(); });
     guarded("urltest", [this]() {
         if (urltest_manager_) {
             urltest_manager_->clear();

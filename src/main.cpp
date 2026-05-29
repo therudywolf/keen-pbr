@@ -279,9 +279,7 @@ int main(int argc, char* argv[]) {
                 dns_cfg,
                 config.lists.value_or(std::map<std::string, keen_pbr3::ListConfig>{}),
                 KEEN_PBR3_VERSION_FULL_STRING,
-                ipv6_decision.enabled,
-                config.daemon.value_or(keen_pbr3::DaemonConfig{})
-                    .dns_split_enabled.value_or(false));
+                ipv6_decision.enabled);
             std::cout << hash << "\n";
             return 0;
         }
@@ -311,14 +309,11 @@ int main(int argc, char* argv[]) {
             keen_pbr3::ListStreamer list_streamer(cache);
             keen_pbr3::DnsServerRegistry dns_registry(dns_cfg);
             auto resolver_type = keen_pbr3::DnsmasqGenerator::parse_resolver_type(opts.resolver_type);
-            const bool dns_split_enabled = config.daemon.value_or(keen_pbr3::DaemonConfig{})
-                                               .dns_split_enabled.value_or(false);
             keen_pbr3::DnsmasqGenerator dnsmasq_gen(dns_registry, list_streamer,
                                                      route_cfg, dns_cfg,
                                                      lists_map, resolver_type,
                                                      KEEN_PBR3_VERSION_FULL_STRING,
-                                                     ipv6_decision.enabled,
-                                                     dns_split_enabled);
+                                                     ipv6_decision.enabled);
             dnsmasq_gen.generate(std::cout);
             return 0;
         }
