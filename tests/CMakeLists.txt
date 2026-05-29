@@ -21,6 +21,7 @@ add_executable(keen-pbr-tests
   test_sni_router.cpp
   test_traffic_counters.cpp
   test_autoheal.cpp
+  test_autoheal_worker.cpp
   test_tcp_payload.cpp
   test_http_client.cpp
   test_config_validation.cpp
@@ -40,6 +41,7 @@ add_executable(keen-pbr-tests
   test_port_spec_util.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
+  ../src/config/config_writer.cpp
   ../src/crash/crash_diagnostics.cpp
   ../src/config/routing_state.cpp
   ../src/firewall/iptables_verifier.cpp
@@ -80,6 +82,7 @@ add_executable(keen-pbr-tests
   ../src/routing/sni_router.cpp
   ../src/routing/tcp_payload.cpp
   ../src/routing/autoheal.cpp
+  ../src/routing/autoheal_worker.cpp
   ../src/metrics/traffic_counters.cpp
   ../src/util/blocking_executor.cpp
   ../src/util/firewall_backend_utils.cpp

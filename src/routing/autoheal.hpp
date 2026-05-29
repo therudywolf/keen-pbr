@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "../config/config.hpp"
@@ -39,5 +40,41 @@ Config promote_domains(Config cfg,
                        const std::string& list,
                        const std::string& outbound,
                        const std::vector<std::string>& domains);
+
+// Auto-heal worker decision input for a single watchlist domain.
+// =============================================================
+// Filled by the periodic worker from a `forest-pbr test-routing` evaluation of
+// the domain (see compute_test_routing). It deliberately carries only the two
+// facts the promotion decision needs, so select_autoheal_promotions() stays a
+// pure function that can be unit-tested without DNS or a live kernel.
+struct AutohealDomainStatus {
+    std::string domain;
+    // True when the domain currently RESOLVES (at least one IPv4 address came
+    // back) AND its resolved routing does NOT go to the auto-heal outbound —
+    // i.e. it is "leaking" to WAN/another outbound when the VPN was intended.
+    // A domain that fails to resolve, or that already routes to the auto-heal
+    // outbound, is not leaking and is never promoted.
+    bool leaking{false};
+};
+
+// Pure decision core for the auto-heal worker.
+// ============================================
+// Given the worker's gating inputs and a per-domain leak status, return the
+// subset of watchlist domains that should be promoted into the auto list on
+// this tick. The result is exactly the domains that are ALL of:
+//   * leaking (status.leaking == true), and
+//   * not already present in `current_auto_list_domains`, and
+//   * non-empty.
+// Watchlist input order is preserved and duplicates are collapsed.
+//
+// Guarantees the "disabled => zero behavior" contract at the decision layer:
+//   * if `enabled` is false, returns {} regardless of everything else;
+//   * if `statuses` is empty (empty watchlist), returns {}.
+// The caller (worker) skips applying any config change when this returns empty,
+// so a disabled or empty-watchlist daemon never touches config or routing.
+std::vector<std::string> select_autoheal_promotions(
+    bool enabled,
+    const std::vector<AutohealDomainStatus>& statuses,
+    const std::unordered_set<std::string>& current_auto_list_domains);
 
 }  // namespace keen_pbr3

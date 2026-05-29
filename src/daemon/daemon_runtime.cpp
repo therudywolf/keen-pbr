@@ -5,11 +5,14 @@
 #include <set>
 #include <sstream>
 
+#include "../cmd/test_routing.hpp"
+#include "../config/config_writer.hpp"
 #include "../config/routing_state.hpp"
 #include "../firewall/firewall.hpp"
 #include "../firewall/firewall_runtime.hpp"
 #include "../lists/list_warmer.hpp"
 #include "../log/logger.hpp"
+#include "../routing/autoheal_worker.hpp"
 #include "../routing/conntrack_flush.hpp"
 #include "../routing/urltest_manager.hpp"
 #include "../util/ipv6_support.hpp"
@@ -330,6 +333,77 @@ void Daemon::schedule_list_warmer() {
                             list_warmer_->settings().upstream_dns_ip);
 }
 
+void Daemon::apply_autoheal_promoted_config(Config promoted) {
+    // Reuse the EXACT mechanism POST /api/config/save uses on the daemon side:
+    //   (1) serialize to the canonical on-disk form,
+    //   (2) atomically write config.json (so a reboot keeps the promotion),
+    //   (3) apply_config -> firewall/dnsmasq reapply on this (event-loop) thread.
+    // apply_config also refreshes the config_store active snapshot, so the API
+    // /api/config view reflects the promotion. No new apply path is introduced.
+    const std::string serialized = serialize_config_pretty(promoted);
+    write_config_atomically(config_path_, serialized);
+    apply_config(std::move(promoted));
+}
+
+void Daemon::schedule_autoheal_worker() {
+    // Cancel any previous schedule first — config reloads land here repeatedly,
+    // exactly like schedule_list_warmer().
+    if (autoheal_worker_task_id_ >= 0) {
+        scheduler_->cancel(autoheal_worker_task_id_);
+        autoheal_worker_task_id_ = -1;
+    }
+
+    const auto daemon_cfg = config_.daemon.value_or(DaemonConfig{});
+
+    // SAFETY: the worker is OFF by default. It is only ever scheduled when
+    // explicitly enabled AND given a non-empty watchlist. In every other case we
+    // destroy the worker and start no task, so the daemon does zero auto-heal
+    // work (no thread, no DNS, no config writes) — the guarantee promised in the
+    // task spec and AutohealWorker's header.
+    const bool enabled = daemon_cfg.autoheal_enabled.value_or(false);
+    const std::vector<std::string> watchlist =
+        daemon_cfg.autoheal_watchlist.value_or(std::vector<std::string>{});
+    if (!enabled || watchlist.empty()) {
+        autoheal_worker_.reset();
+        Logger::instance().info(
+            "Auto-heal worker disabled (enabled={}, watchlist_size={})",
+            enabled, watchlist.size());
+        return;
+    }
+
+    int64_t interval_seconds = daemon_cfg.autoheal_interval_seconds.value_or(900);
+    if (interval_seconds <= 0) {
+        interval_seconds = 900;  // guard against a non-positive override
+    }
+
+    // Hot-reload safety mirrors ListWarmer: capture live accessors, not a
+    // config snapshot, so each tick re-reads the daemon's current config_ and
+    // re-checks the enable/watchlist gate.
+    autoheal_worker_ = std::make_unique<AutohealWorker>(
+        [this]() -> const Config& { return config_; },
+        [this](const std::string& target) {
+            return compute_test_routing(config_, list_service_.cache_manager(), target);
+        },
+        [this](Config promoted) { apply_autoheal_promoted_config(std::move(promoted)); });
+
+    const auto interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::seconds{interval_seconds});
+    autoheal_worker_task_id_ = scheduler_->schedule_repeating(
+        interval_ms,
+        [this]() {
+            if (!autoheal_worker_) return;
+            const int promoted = autoheal_worker_->tick();
+            if (promoted > 0) {
+                Logger::instance().trace("autoheal_worker_pass", "promoted={}", promoted);
+            }
+        },
+        "autoheal-worker");
+
+    Logger::instance().info(
+        "Auto-heal worker scheduled (interval={}s, watchlist_size={})",
+        interval_seconds, watchlist.size());
+}
+
 ListsRefreshExecutionResult Daemon::execute_remote_list_refresh(
     const std::set<std::string>* target_lists) {
     auto& log = Logger::instance();
@@ -554,6 +628,10 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
         scheduler_->cancel(list_warmer_task_id_);
         list_warmer_task_id_ = -1;
     }
+    if (autoheal_worker_task_id_ >= 0) {
+        scheduler_->cancel(autoheal_worker_task_id_);
+        autoheal_worker_task_id_ = -1;
+    }
 
     outbound_marks_ = std::move(prepared.outbound_marks);
     config_ = std::move(prepared.config);
@@ -574,6 +652,7 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
     schedule_keenetic_dns_refresh();
     schedule_lists_autoupdate();
     schedule_list_warmer();
+    schedule_autoheal_worker();
     update_resolver_config_hash();
     setup_dns_probe();
     run_system_resolver_hook_reload();

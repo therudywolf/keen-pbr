@@ -17,6 +17,7 @@
 #include "../firewall/firewall_verifier.hpp"
 #include "../lists/list_warmer.hpp"
 #include "../log/logger.hpp"
+#include "../routing/autoheal_worker.hpp"
 #include "../routing/conntrack_flush.hpp"
 #include "../util/daemon_signals.hpp"
 #include "../dns/dns_probe_server.hpp" // IWYU pragma: keep
@@ -621,6 +622,9 @@ void Daemon::run() {
         // clients never touch dnsmasq (DoH/DoT) or cache-hit answers. See
         // ListWarmer for the full rationale.
         schedule_list_warmer();
+        // Periodic auto-heal worker. A strict no-op unless autoheal_enabled is
+        // true AND autoheal_watchlist is non-empty (default: disabled).
+        schedule_autoheal_worker();
 
         update_resolver_config_hash();
         refresh_resolver_config_hash_actual_async();

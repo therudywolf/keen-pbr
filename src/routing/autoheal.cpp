@@ -81,4 +81,35 @@ Config promote_domains(Config cfg,
     return cfg;
 }
 
+std::vector<std::string> select_autoheal_promotions(
+    bool enabled,
+    const std::vector<AutohealDomainStatus>& statuses,
+    const std::unordered_set<std::string>& current_auto_list_domains) {
+    // Disabled is the default and MUST be an exact no-op: never propose any
+    // promotion regardless of the per-domain statuses. An empty `statuses`
+    // (which the worker only produces from an empty watchlist) likewise yields
+    // nothing, so the loop below already covers that case.
+    if (!enabled) {
+        return {};
+    }
+
+    std::vector<std::string> promotions;
+    std::unordered_set<std::string> emitted;
+    for (const auto& status : statuses) {
+        if (status.domain.empty() || !status.leaking) {
+            continue;
+        }
+        // Already covered by the auto list — adding it again would be a no-op,
+        // and promote_domains would dedup it anyway, but skipping here keeps the
+        // worker's "promoted" log honest.
+        if (current_auto_list_domains.count(status.domain) != 0) {
+            continue;
+        }
+        if (emitted.insert(status.domain).second) {
+            promotions.push_back(status.domain);
+        }
+    }
+    return promotions;
+}
+
 }  // namespace keen_pbr3

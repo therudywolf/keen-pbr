@@ -231,6 +231,7 @@ set(SOURCES
   src/http/http_client.cpp
   src/crash/crash_diagnostics.cpp
   src/config/config.cpp
+  src/config/config_writer.cpp
   src/config/routing_state.cpp
   src/config/list_parser.cpp
   src/lists/ipset.cpp
@@ -249,6 +250,7 @@ set(SOURCES
   src/routing/sni_router.cpp
   src/routing/tcp_payload.cpp
   src/routing/autoheal.cpp
+  src/routing/autoheal_worker.cpp
   src/routing/nfqueue_listener.cpp
   src/routing/interface_monitor.cpp
   src/routing/route_table.cpp

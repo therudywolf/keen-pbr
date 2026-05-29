@@ -118,8 +118,10 @@ namespace api {
 
     struct Daemon {
         std::optional<bool> autoheal_enabled;
+        std::optional<int64_t> autoheal_interval_seconds;
         std::optional<std::string> autoheal_list;
         std::optional<std::string> autoheal_outbound;
+        std::optional<std::vector<std::string>> autoheal_watchlist;
         std::optional<std::string> cache_dir;
         std::optional<DaemonConfigFirewallBackend> firewall_backend;
         std::optional<int64_t> firewall_verify_max_bytes;
@@ -745,8 +747,10 @@ namespace api {
 
     inline void from_json(const json & j, Daemon& x) {
         x.autoheal_enabled = get_stack_optional<bool>(j, "autoheal_enabled");
+        x.autoheal_interval_seconds = get_stack_optional<int64_t>(j, "autoheal_interval_seconds");
         x.autoheal_list = get_stack_optional<std::string>(j, "autoheal_list");
         x.autoheal_outbound = get_stack_optional<std::string>(j, "autoheal_outbound");
+        x.autoheal_watchlist = get_stack_optional<std::vector<std::string>>(j, "autoheal_watchlist");
         x.cache_dir = get_stack_optional<std::string>(j, "cache_dir");
         x.firewall_backend = get_stack_optional<DaemonConfigFirewallBackend>(j, "firewall_backend");
         x.firewall_verify_max_bytes = get_stack_optional<int64_t>(j, "firewall_verify_max_bytes");
@@ -762,8 +766,10 @@ namespace api {
     inline void to_json(json & j, const Daemon & x) {
         j = json::object();
         j["autoheal_enabled"] = x.autoheal_enabled;
+        j["autoheal_interval_seconds"] = x.autoheal_interval_seconds;
         j["autoheal_list"] = x.autoheal_list;
         j["autoheal_outbound"] = x.autoheal_outbound;
+        j["autoheal_watchlist"] = x.autoheal_watchlist;
         j["cache_dir"] = x.cache_dir;
         j["firewall_backend"] = x.firewall_backend;
         j["firewall_verify_max_bytes"] = x.firewall_verify_max_bytes;

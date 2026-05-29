@@ -37,6 +37,7 @@ class Scheduler;
 class UrltestManager;
 class DnsProbeServer;
 class ListWarmer;
+class AutohealWorker;
 class ConntrackFlusher;
 struct DnsProbeEvent;
 
@@ -186,6 +187,16 @@ private:
     // schedules a fresh repeating warm_once() at the configured interval.
     // No-op when warming is disabled (interval=0) or no lists carry domains.
     void schedule_list_warmer();
+    // (Re-)install the background auto-heal worker task. Cancels any prior task
+    // and, ONLY when daemon.autoheal_enabled is true AND autoheal_watchlist is
+    // non-empty, schedules a fresh repeating tick() at autoheal_interval_seconds.
+    // Otherwise the worker is destroyed and no task runs — guaranteeing zero
+    // behavior in the default (disabled) configuration.
+    void schedule_autoheal_worker();
+    // Persist + reapply a config the auto-heal worker promoted, using the same
+    // path POST /api/config/save uses: atomic write to config.json followed by
+    // apply_config (firewall/dnsmasq reapply). Runs on the event-loop thread.
+    void apply_autoheal_promoted_config(Config promoted);
     ListsRefreshExecutionResult execute_remote_list_refresh(
         const std::set<std::string>* target_lists = nullptr);
     void refresh_lists_and_maybe_reload();
@@ -273,6 +284,10 @@ private:
     // Periodic background warm-up of the dnsmasq-populated ipsets — see
     // ListWarmer for the cache-bypass rationale.
     int list_warmer_task_id_{-1};
+    // Periodic auto-heal worker that promotes leaking watchlist domains into
+    // the auto-heal list. -1 (no task) whenever auto-heal is disabled or the
+    // watchlist is empty — see AutohealWorker and schedule_autoheal_worker.
+    int autoheal_worker_task_id_{-1};
 
     // Epoll state
     int epoll_fd_{-1};
@@ -331,6 +346,7 @@ private:
     std::unique_ptr<Scheduler> scheduler_;
     std::unique_ptr<UrltestManager> urltest_manager_;
     std::unique_ptr<ListWarmer> list_warmer_;
+    std::unique_ptr<AutohealWorker> autoheal_worker_;
     // Invalidates conntrack entries whose dst-IP lives in a kpbr* ipset so the
     // next packet re-evaluates routing instead of riding a stale FASTNAT mark.
     // See ConntrackFlusher for the rationale.

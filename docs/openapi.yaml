@@ -506,28 +506,63 @@ components:
           type: boolean
           nullable: true
           description: >
-            Reserved for a future periodic auto-heal mode. When false (the
-            default), auto-heal only acts on explicit POST /api/autoheal/promote
-            calls and never changes routing on its own. Parsed and stored but
-            does not affect behavior in this version.
+            Enables the periodic auto-heal worker. When false (the default), the
+            worker never starts and auto-heal only acts on explicit POST
+            /api/autoheal/promote calls — routing is never changed on its own.
+            When true AND autoheal_watchlist is non-empty, a background worker
+            re-checks the watchlist domains every autoheal_interval_seconds and
+            promotes any that are leaking (resolving to a non-autoheal_outbound)
+            into autoheal_list, then persists and reapplies config exactly like
+            POST /api/config/save. The worker only ADDS domains; it never removes
+            or reorders anything.
           default: false
           example: false
+        autoheal_interval_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >
+            Cadence in seconds at which the auto-heal worker re-checks the
+            watchlist domains. Ignored unless autoheal_enabled is true and
+            autoheal_watchlist is non-empty. Defaults to 900 (15 minutes) when
+            omitted or null.
+          default: 900
+          example: 900
+        autoheal_watchlist:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Domains the auto-heal worker is ALLOWED to promote automatically.
+            Empty (the default) means the worker no-ops even when
+            autoheal_enabled is true: nothing is ever promoted unless it appears
+            on this list. A watchlist domain is promoted into autoheal_list only
+            when it is currently leaking (its resolved routing does not go to
+            autoheal_outbound) and it is not already present in autoheal_list.
+          default: []
+          example:
+            - chat.openai.com
+            - api.openai.com
         autoheal_list:
           type: string
           nullable: true
           description: >
             Name of the high-priority list that auto-heal promotes leaking
-            domains into. POST /api/autoheal/promote appends domains to this
-            list and guarantees a route rule for it sits at the top of
-            route.rules. Defaults to "auto" when omitted or null.
+            domains into. Both POST /api/autoheal/promote and the periodic
+            auto-heal worker append domains to this list and guarantee a route
+            rule for it sits at the top of route.rules. Defaults to "auto" when
+            omitted or null.
           default: "auto"
           example: "auto"
         autoheal_outbound:
           type: string
           nullable: true
           description: >
-            Outbound tag the auto-heal top-priority route rule routes to.
-            Defaults to "forestserver_ru" when omitted or null.
+            Outbound tag the auto-heal top-priority route rule routes to. Also
+            the outbound the worker treats as the intended destination when
+            deciding whether a watchlist domain is leaking. Defaults to
+            "forestserver_ru" when omitted or null.
           default: "forestserver_ru"
           example: "forestserver_ru"
 
