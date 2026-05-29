@@ -56,4 +56,61 @@ L4Slice locate_tcp_payload(const uint8_t* pkt, std::size_t len) {
     return L4Slice{pkt + l4_off, len - l4_off};
 }
 
+std::optional<uint32_t> extract_ipv4_dst(const uint8_t* pkt, std::size_t len) {
+    if (pkt == nullptr || len < kIpv4MinHeader) {
+        return std::nullopt;
+    }
+    if (static_cast<uint8_t>(pkt[0] >> 4) != 4) {
+        return std::nullopt;  // not IPv4 (IPv6 has no fixed dst at this offset)
+    }
+    // IPv4 destination address occupies bytes 16..19. Assemble big-endian into a
+    // host-order integer (192.0.2.1 -> 0xC0000201), matching parse_ipv4_to_key().
+    return (static_cast<uint32_t>(pkt[16]) << 24) |
+           (static_cast<uint32_t>(pkt[17]) << 16) |
+           (static_cast<uint32_t>(pkt[18]) << 8) |
+           (static_cast<uint32_t>(pkt[19]));
+}
+
+std::optional<uint32_t> parse_ipv4_to_key(const char* s, std::size_t len) {
+    if (s == nullptr || len == 0) {
+        return std::nullopt;
+    }
+    uint32_t result = 0;
+    int octets = 0;
+    std::size_t i = 0;
+    while (i < len) {
+        std::size_t digits = 0;
+        uint32_t value = 0;
+        while (i < len && s[i] >= '0' && s[i] <= '9') {
+            value = value * 10u + static_cast<uint32_t>(s[i] - '0');
+            ++digits;
+            ++i;
+            if (digits > 3) {
+                return std::nullopt;
+            }
+        }
+        if (digits == 0 || value > 255) {
+            return std::nullopt;
+        }
+        result = (result << 8) | value;
+        ++octets;
+        if (octets > 4) {
+            return std::nullopt;
+        }
+        if (i < len) {
+            if (s[i] != '.') {
+                return std::nullopt;
+            }
+            ++i;
+            if (i >= len) {
+                return std::nullopt;  // trailing dot
+            }
+        }
+    }
+    if (octets != 4) {
+        return std::nullopt;
+    }
+    return result;
+}
+
 }  // namespace keen_pbr3

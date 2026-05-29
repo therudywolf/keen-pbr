@@ -79,7 +79,7 @@ define Package/forest-pbr
   CATEGORY:=Network
   TITLE:=Forest-PBR — Keen Policy-Based Routing (full)
   VERSION:=$(PKG_VERSION)-$(PKG_RELEASE)
-  DEPENDS:=+dnsmasq +ipset +iptables +libatomic +libcurl +libnl-core +libnl-route +libstdcpp +zlib +libzstd
+  DEPENDS:=+dnsmasq +ipset +iptables +libatomic +libcurl +libnetfilter-queue +libnl-core +libnl-route +libstdcpp +zlib +libzstd
   VARIANT:=full
 endef
 
@@ -135,7 +135,7 @@ define Package/forest-pbr-headless
   CATEGORY:=Network
   TITLE:=Forest-PBR — Keen Policy-Based Routing (headless)
   VERSION:=$(PKG_VERSION)-$(PKG_RELEASE)
-  DEPENDS:=+dnsmasq +ipset +iptables +libatomic +libcurl +libnl-core +libnl-route +libstdcpp +zlib +libzstd
+  DEPENDS:=+dnsmasq +ipset +iptables +libatomic +libcurl +libnetfilter-queue +libnl-core +libnl-route +libstdcpp +zlib +libzstd
   VARIANT:=headless
 endef
 

@@ -34,7 +34,13 @@ public:
                      const std::map<std::string, ListConfig>& lists,
                      ResolverType resolver_type = ResolverType::DNSMASQ_IPSET,
                      std::string hash_version = KEEN_PBR3_VERSION_FULL_STRING,
-                     bool ipv6_enabled = true);
+                     bool ipv6_enabled = true,
+                     bool dns_split_enabled = false);
+
+    // Path of the dnsmasq log file keen-pbr tails for DNS-correlation split
+    // routing. Emitted as log-facility= only when dns_split_enabled. Exposed so
+    // the daemon's DnsSplitObserver tails the exact same path.
+    static constexpr const char* kDnsSplitLogPath = "/opt/var/log/forest-pbr-dns.log";
 
     // Generate dnsmasq configuration and stream it to the output.
     // Produces ipset=/nftset= and server= directives for all matched domains.
@@ -52,7 +58,8 @@ public:
         const DnsConfig& dns_config,
         const std::map<std::string, ListConfig>& lists,
         std::string hash_version = KEEN_PBR3_VERSION_FULL_STRING,
-        bool ipv6_enabled = true);
+        bool ipv6_enabled = true,
+        bool dns_split_enabled = false);
 
     // Build the dynamic (dnsmasq-populated) IPv4/IPv6 set names for a given list name.
     // These are the sets referenced by ipset=/nftset= directives in dnsmasq config.
@@ -64,15 +71,18 @@ public:
         return "kpbr6d_" + list_name;
     }
 
+    // Strip a leading dnsmasq wildcard ("*.example.com" -> "example.com"); pass
+    // other domains through unchanged. Public so other subsystems (e.g. the
+    // DNS-split domain->mark builder) normalise list domains the same way the
+    // generated dnsmasq directives do.
+    static std::string strip_wildcard(const std::string& domain);
+
 private:
     // Emit dnsmasq directives to out when provided and update the canonical
     // hash payload via the optional callback in the same pass over the lists.
     void generate_directives(
         std::ostream* out,
         const std::function<void(const std::string&)>& hash_record_callback = {});
-
-    // Strip wildcard prefix from domain (*.example.com -> example.com).
-    static std::string strip_wildcard(const std::string& domain);
 
     const DnsServerRegistry& dns_registry_;
     ListStreamer& list_streamer_;
@@ -84,6 +94,7 @@ private:
     ResolverType resolver_type_;
     std::string hash_version_;
     bool ipv6_enabled_;
+    bool dns_split_enabled_;
 };
 
 } // namespace keen_pbr3

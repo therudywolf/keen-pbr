@@ -66,12 +66,23 @@ struct FirewallGlobalPrefilter {
     bool skip_established_or_dnat{false};
     bool skip_marked_packets{false};
 
+    // DNS-correlation split routing. When dns_split_enabled is true, the mangle
+    // chain restores a per-connection mark for tcp/443, queues NEW unmarked
+    // tcp/443 to NFQUEUE dns_split_queue_num for SYN-time classification, and
+    // saves the resulting mark back onto the connection — so the per-domain mark
+    // (decided from the DNS the client just resolved) takes precedence over the
+    // ipset MARK rules. Default false: no such rules are emitted at all.
+    bool dns_split_enabled{false};
+    uint16_t dns_split_queue_num{0};
+    uint32_t dns_split_fwmark_mask{0xFFFFFFFFu};
+
     bool has_inbound_interfaces() const {
         return inbound_interfaces.has_value() && !inbound_interfaces->empty();
     }
 
     bool empty() const {
-        return !skip_established_or_dnat && !skip_marked_packets && !has_inbound_interfaces();
+        return !skip_established_or_dnat && !skip_marked_packets
+            && !has_inbound_interfaces() && !dns_split_enabled;
     }
 };
 

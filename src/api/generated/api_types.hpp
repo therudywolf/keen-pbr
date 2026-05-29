@@ -123,6 +123,8 @@ namespace api {
         std::optional<std::string> autoheal_outbound;
         std::optional<std::vector<std::string>> autoheal_watchlist;
         std::optional<std::string> cache_dir;
+        std::optional<bool> dns_split_enabled;
+        std::optional<int64_t> dns_split_queue_num;
         std::optional<DaemonConfigFirewallBackend> firewall_backend;
         std::optional<int64_t> firewall_verify_max_bytes;
         std::optional<bool> ipv6_enabled;
@@ -752,6 +754,8 @@ namespace api {
         x.autoheal_outbound = get_stack_optional<std::string>(j, "autoheal_outbound");
         x.autoheal_watchlist = get_stack_optional<std::vector<std::string>>(j, "autoheal_watchlist");
         x.cache_dir = get_stack_optional<std::string>(j, "cache_dir");
+        x.dns_split_enabled = get_stack_optional<bool>(j, "dns_split_enabled");
+        x.dns_split_queue_num = get_stack_optional<int64_t>(j, "dns_split_queue_num");
         x.firewall_backend = get_stack_optional<DaemonConfigFirewallBackend>(j, "firewall_backend");
         x.firewall_verify_max_bytes = get_stack_optional<int64_t>(j, "firewall_verify_max_bytes");
         x.ipv6_enabled = get_stack_optional<bool>(j, "ipv6_enabled");
@@ -771,6 +775,8 @@ namespace api {
         j["autoheal_outbound"] = x.autoheal_outbound;
         j["autoheal_watchlist"] = x.autoheal_watchlist;
         j["cache_dir"] = x.cache_dir;
+        j["dns_split_enabled"] = x.dns_split_enabled;
+        j["dns_split_queue_num"] = x.dns_split_queue_num;
         j["firewall_backend"] = x.firewall_backend;
         j["firewall_verify_max_bytes"] = x.firewall_verify_max_bytes;
         j["ipv6_enabled"] = x.ipv6_enabled;

@@ -456,6 +456,29 @@ components:
             Whether firewall prefilter rules should bypass packets that already carry
             a fwmark. Defaults to `true` when omitted or set to `null`.
           example: true
+        dns_split_enabled:
+          type: boolean
+          nullable: true
+          description: >
+            Enable DNS-correlation split routing. When `true`, keen-pbr observes
+            dnsmasq reply log lines, builds a (resolved-IP -> outbound fwmark) map
+            keyed by the domain the client just resolved, and marks new tcp/443
+            connections at SYN via NFQUEUE so two domains sharing one CDN IP can take
+            different outbounds. Defaults to `false`; when disabled keen-pbr injects
+            no dnsmasq logging directives, installs no NFQUEUE iptables rules, and
+            starts no observer — a strict no-op.
+          default: false
+          example: false
+        dns_split_queue_num:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 65535
+          description: >
+            NFQUEUE queue number used by DNS-correlation split routing. Only used
+            when dns_split_enabled is true. Defaults to 4788 when omitted or null.
+          default: 4788
+          example: 4788
         ipv6_enabled:
           type: boolean
           nullable: true

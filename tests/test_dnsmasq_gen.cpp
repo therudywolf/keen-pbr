@@ -169,6 +169,65 @@ static size_t calc_ipset_line_len(const std::string& list_name,
 }
 
 // =============================================================================
+// DNS-correlation split routing directive tests
+// =============================================================================
+
+TEST_CASE("dnsmasq dns_split: disabled (default) emits no logging directives") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const std::string list_name = "svc";
+    auto route_cfg = make_route_cfg(list_name);
+    auto dns_cfg   = make_empty_dns_cfg();
+    auto lists     = std::map<std::string, ListConfig>{{list_name, make_list_cfg({"example.com"})}};
+    DnsServerRegistry dns_registry(dns_cfg);
+    // Default constructor args -> dns_split disabled.
+    DnsmasqGenerator gen(dns_registry, streamer, route_cfg, dns_cfg, lists);
+    const std::string output = run_generate(gen);
+    CHECK(output.find("log-queries") == std::string::npos);
+    CHECK(output.find("log-facility") == std::string::npos);
+}
+
+TEST_CASE("dnsmasq dns_split: enabled emits log-queries=extra + log-facility") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const std::string list_name = "svc";
+    auto route_cfg = make_route_cfg(list_name);
+    auto dns_cfg   = make_empty_dns_cfg();
+    auto lists     = std::map<std::string, ListConfig>{{list_name, make_list_cfg({"example.com"})}};
+    DnsServerRegistry dns_registry(dns_cfg);
+    DnsmasqGenerator gen(dns_registry, streamer, route_cfg, dns_cfg, lists,
+                         ResolverType::DNSMASQ_IPSET, KEEN_PBR3_VERSION_FULL_STRING,
+                         /*ipv6_enabled=*/true, /*dns_split_enabled=*/true);
+    const std::string output = run_generate(gen);
+    CHECK(output.find("log-queries=extra\n") != std::string::npos);
+    CHECK(output.find(std::string("log-facility=") + DnsmasqGenerator::kDnsSplitLogPath + "\n")
+          != std::string::npos);
+}
+
+TEST_CASE("dnsmasq dns_split: toggling changes the config hash (forces dnsmasq restart)") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const std::string list_name = "svc";
+    auto route_cfg = make_route_cfg(list_name);
+    auto dns_cfg   = make_empty_dns_cfg();
+    auto lists     = std::map<std::string, ListConfig>{{list_name, make_list_cfg({"example.com"})}};
+
+    DnsServerRegistry r1(dns_cfg);
+    DnsmasqGenerator off(r1, streamer, route_cfg, dns_cfg, lists,
+                         ResolverType::DNSMASQ_IPSET, KEEN_PBR3_VERSION_FULL_STRING,
+                         true, /*dns_split_enabled=*/false);
+    const std::string hash_off = off.compute_config_hash();
+
+    DnsServerRegistry r2(dns_cfg);
+    DnsmasqGenerator on(r2, streamer, route_cfg, dns_cfg, lists,
+                        ResolverType::DNSMASQ_IPSET, KEEN_PBR3_VERSION_FULL_STRING,
+                        true, /*dns_split_enabled=*/true);
+    const std::string hash_on = on.compute_config_hash();
+
+    CHECK(hash_off != hash_on);
+}
+
+// =============================================================================
 // Dynamic set naming tests (dnsmasq ipset=/nftset= directives)
 // =============================================================================
 //

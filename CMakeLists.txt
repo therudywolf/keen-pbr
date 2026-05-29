@@ -252,6 +252,9 @@ set(SOURCES
   src/routing/autoheal.cpp
   src/routing/autoheal_worker.cpp
   src/routing/nfqueue_listener.cpp
+  src/routing/dns_split_table.cpp
+  src/routing/dns_split_observer.cpp
+  src/routing/dns_split_marks.cpp
   src/routing/interface_monitor.cpp
   src/routing/route_table.cpp
   src/routing/policy_rule.cpp
@@ -281,6 +284,7 @@ set(SOURCES
   src/dns/dns_probe_server.cpp
   src/dns/dns_router.cpp
   src/dns/dnsmasq_gen.cpp
+  src/dns/dnsmasq_reply_parser.cpp
   src/daemon/config_store.cpp
   src/daemon/daemon_core.cpp
   src/daemon/daemon_runtime.cpp

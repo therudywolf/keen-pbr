@@ -344,6 +344,44 @@ std::string IptablesFirewall::build_prefilter_lines(
     return lines;
 }
 
+std::string IptablesFirewall::build_dns_split_lines(
+    const FirewallGlobalPrefilter& prefilter) {
+    // DNS-correlation split routing, IPv4 mangle chain. Ordering matters:
+    //
+    //   1. Restore any per-connection mark onto this tcp/443 packet. For the
+    //      first (SYN) packet of a flow there is none yet (no-op); for later
+    //      packets this re-applies the mark the SYN was classified with, so a
+    //      long-lived flow keeps its outbound without being re-queued.
+    //   2. If the packet now carries one of our marks, ACCEPT it: the per-domain
+    //      decision is made, so it must take precedence over — and skip — the
+    //      ipset MARK rules that follow.
+    //   3. Otherwise, for a NEW unmarked tcp/443 connection, send the SYN to
+    //      NFQUEUE for SNI-free, DNS-derived classification. --queue-bypass makes
+    //      this fail-open: with no listener attached the packet is accepted and
+    //      simply falls through to the ipset rules, so a dead listener never
+    //      blocks traffic.
+    //   4. After the listener's verdict stamps a mark on the (reinjected) SYN,
+    //      save it onto the connection so step 1 can restore it next time.
+    //
+    // Everything is scoped to tcp dport 443 and the configured fwmark mask, so it
+    // never touches non-HTTPS traffic or bits outside keen-pbr's mark space.
+    const uint32_t mask = prefilter.dns_split_fwmark_mask;
+    std::string lines;
+    lines += keen_pbr3::format(
+        "-A {} -p tcp --dport 443 -j CONNMARK --restore-mark --nfmask {:#x} --ctmask {:#x}\n",
+        CHAIN_NAME, mask, mask);
+    lines += keen_pbr3::format(
+        "-A {} -p tcp --dport 443 -m mark ! --mark 0x0/{:#x} -j ACCEPT\n",
+        CHAIN_NAME, mask);
+    lines += keen_pbr3::format(
+        "-A {} -p tcp --dport 443 -m conntrack --ctstate NEW -j NFQUEUE --queue-num {} --queue-bypass\n",
+        CHAIN_NAME, prefilter.dns_split_queue_num);
+    lines += keen_pbr3::format(
+        "-A {} -p tcp --dport 443 -m mark ! --mark 0x0/{:#x} -j CONNMARK --save-mark --nfmask {:#x} --ctmask {:#x}\n",
+        CHAIN_NAME, mask, mask, mask);
+    return lines;
+}
+
 std::vector<std::string> IptablesFirewall::build_rule_lines(
     const PendingRule& pr,
     const FirewallGlobalPrefilter& prefilter) {
@@ -467,6 +505,12 @@ std::string IptablesFirewall::build_ipt_script(bool ipv6,
     s += keen_pbr3::format("*mangle\n:{} - [0:0]\n-A PREROUTING -j {}\n",
                            CHAIN_NAME, CHAIN_NAME);
     s += build_prefilter_lines(prefilter);
+    // DNS-correlation split routing (IPv4 only). Emitted after the prefilter and
+    // BEFORE the ipset MARK rules so a per-domain mark takes precedence. Fully
+    // gated on dns_split_enabled — nothing here exists in the default config.
+    if (!ipv6 && prefilter.dns_split_enabled) {
+        s += build_dns_split_lines(prefilter);
+    }
     for (const auto& pr : consolidated) {
         if (pr.ipv6 != ipv6) continue;
         for (const auto& line : build_rule_lines(pr, prefilter)) {

@@ -53,7 +53,8 @@ void Daemon::update_resolver_config_hash() {
         dns_cfg,
         config_.lists.value_or(std::map<std::string, ListConfig>{}),
         KEEN_PBR3_VERSION_FULL_STRING,
-        ipv6_decision.enabled);
+        ipv6_decision.enabled,
+        config_.daemon.value_or(DaemonConfig{}).dns_split_enabled.value_or(false));
     Logger::instance().info("Resolver config hash: {}", resolver_config_hash_);
 }
 

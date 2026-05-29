@@ -60,6 +60,10 @@ using ListsAutoupdateConfig = api::ListsAutoupdate;
 
 constexpr std::size_t kDefaultMaxFileSizeBytes = std::size_t{8} * 1024U * 1024U; // 8 MiB
 
+// Default NFQUEUE queue number for DNS-correlation split routing
+// (daemon.dns_split_queue_num). Only used when daemon.dns_split_enabled is true.
+constexpr int64_t kDefaultDnsSplitQueueNum = 4788;
+
 inline const std::vector<std::string>& route_rule_lists(const RouteRule& rule) {
     static const std::vector<std::string> empty;
     return rule.list ? *rule.list : empty;

@@ -39,6 +39,9 @@ class DnsProbeServer;
 class ListWarmer;
 class AutohealWorker;
 class ConntrackFlusher;
+class DnsSplitTable;
+class DnsSplitObserver;
+class NfqueueListener;
 struct DnsProbeEvent;
 
 #ifdef WITH_API
@@ -251,6 +254,15 @@ private:
     void handle_dns_probe_tcp_client_events(int client_fd, uint32_t events);
     void handle_dns_probe_tcp_timer_events(uint32_t events);
 
+    // DNS-correlation split routing. setup_dns_split() builds the correlation
+    // table, the log observer worker, and the NFQUEUE listener and registers its
+    // fd — but ONLY when daemon.dns_split_enabled is true. teardown_dns_split()
+    // unregisters the fd, cancels the observer task, and destroys all three.
+    // Both are strict no-ops in the default (disabled) configuration.
+    void setup_dns_split();
+    void teardown_dns_split();
+    void handle_dns_split_nfqueue_events(uint32_t events);
+
     // Hash of the current domain-to-ipset mapping (matches dnsmasq txt-record)
     std::string resolver_config_hash_;
     // Hash currently published by the live system resolver TXT record.
@@ -288,6 +300,9 @@ private:
     // the auto-heal list. -1 (no task) whenever auto-heal is disabled or the
     // watchlist is empty — see AutohealWorker and schedule_autoheal_worker.
     int autoheal_worker_task_id_{-1};
+    // Periodic DNS-split observer tick that tails the dnsmasq reply log. -1 (no
+    // task) whenever dns_split is disabled — see DnsSplitObserver/setup_dns_split.
+    int dns_split_observer_task_id_{-1};
 
     // Epoll state
     int epoll_fd_{-1};
@@ -363,6 +378,14 @@ private:
 #endif
 
     std::unique_ptr<DnsProbeServer> dns_probe_server_;
+
+    // DNS-correlation split routing subsystems. All null unless dns_split is
+    // enabled. The table is shared between the observer (writer) and the NFQUEUE
+    // listener's decider (reader); it must outlive both, so it is declared first.
+    std::unique_ptr<DnsSplitTable> dns_split_table_;
+    std::unique_ptr<DnsSplitObserver> dns_split_observer_;
+    std::unique_ptr<NfqueueListener> dns_split_listener_;
+
     HookCommandExecutor hook_command_executor_;
     bool routing_runtime_active_{true};
 };
