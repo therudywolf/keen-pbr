@@ -113,6 +113,7 @@ export const enTranslation = {
           settings: "Settings",
           outbounds: "Outbounds",
           services: "Services",
+          leakScanner: "Leak Scanner",
           lists: "Lists",
           routingRules: "Routing rules",
         },
@@ -460,7 +461,8 @@ export const enTranslation = {
         services: {
           title: "Services",
           description:
-            "See which outbound each service uses and switch it between VPN, WAN, and others. Run an on-demand leak check per service.",
+            "See which outbound each service uses and switch it between VPN, WAN, and others. Run an on-demand leak check per service, or open the Leak Scanner for a full, reviewable sweep.",
+          openScanner: "Leak Scanner",
           searchPlaceholder: "Search services...",
           health: {
             title: "Outbounds health",
@@ -478,24 +480,9 @@ export const enTranslation = {
             check: "Check",
             selectOutbound: "Select outbound",
           },
-          batch: {
-            checkAll: "Check all",
-            progress: "Checked {{done}} / {{total}}",
-            summaryLeaking: "{{count}} leaking to WAN",
-            summaryClean: "All clean",
-          },
-          autofix: {
-            button: "Auto-fix leaks ({{count}})",
-            confirm:
-              "Add {{count}} domain(s) from the leaking services to the auto-list (VPN)? Apply the staged config afterwards to take effect.",
-            success:
-              "{{count}} domain(s) added to the auto-list (VPN); press Apply.",
-            sharedIpNote:
-              "Promoting a domain that shares an IP with a WAN-only service (e.g. Google Drive) can pull that neighbour to VPN too — a limitation of shared IPs.",
-          },
           leak: {
             ok: "OK",
-            leaking: "Leaking to {{outbound}}",
+            leaking: "Goes through {{outbound}}",
             failed: "Check failed",
           },
           messages: {
@@ -510,6 +497,53 @@ export const enTranslation = {
           noMatches: {
             title: "No services match your search",
             description: "Try a different name or clear the search box.",
+          },
+        },
+        leakScanner: {
+          title: "Leak Scanner",
+          description:
+            "Scan every service to find ones whose traffic goes through the wrong outbound, then review and fix each one explicitly — no blind bulk changes.",
+          scan: {
+            title: "Scan",
+            explainer:
+              "Probes each service on demand and checks where its traffic actually goes versus where its rule says it should. Nothing changes until you review and confirm a fix.",
+            action: "Scan leaks",
+            progress: "Checked {{done}} / {{total}}",
+            summaryLeaking: "{{count}} leaking service(s) found",
+            summaryClean: "No leaks found",
+          },
+          status: {
+            goesThrough: "Goes through",
+            expected: "expected",
+          },
+          headers: {
+            service: "Service",
+            status: "Where it goes",
+            domains: "Domains",
+            fix: "Fix",
+          },
+          bulk: {
+            selected: "{{count}} selected",
+            fixSelected: "Fix selected",
+          },
+          fix: {
+            action: "Fix",
+            success: "{{count}} service(s) moved to their expected outbound; press Apply.",
+          },
+          fixDialog: {
+            title: "Fix {{count}} service(s)",
+            description:
+              "Each service below will be moved back to its expected outbound. The change is staged — press Apply afterwards to take effect.",
+            movePrefix: "Move {{count}} domain(s) of",
+            confirm: "Fix {{count}} service(s)",
+          },
+          clean: {
+            title: "No leaks detected",
+            description:
+              "Every scanned service routes through its expected outbound. awoo ⌁",
+          },
+          messages: {
+            noTestable: "No service has a testable entry to scan.",
           },
         },
         metrics: {

@@ -133,6 +133,66 @@ export function evaluateLeakCheck(
 }
 
 /**
+ * Per-service verdict used by the Leak Scanner. Richer than {@link LeakCheckState}:
+ * a leaking verdict carries BOTH the expected and the actual outbound so the
+ * scanner table and the fix preview can spell out exactly where the service goes
+ * vs. where its rule says it should ("goes through {actual}, expected {expected}").
+ */
+export type ServiceScanState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ok" }
+  | { status: "leaking"; expectedOutbound: string; actualOutbound: string }
+
+/**
+ * Maps a routing-test response into a Leak Scanner verdict, capturing the
+ * expected vs. actual outbound of the first failing IPv4 row. Used instead of
+ * {@link evaluateLeakCheck} where the UI needs to show both outbounds (the
+ * latter only carries the actual one, and its shape is asserted by tests).
+ */
+export function evaluateServiceScan(
+  diagnostics: RoutingTestResponse
+): ServiceScanState {
+  const leakRow = findIpv4LeakRow(diagnostics.results)
+
+  return leakRow
+    ? {
+        status: "leaking",
+        expectedOutbound: leakRow.expected_outbound,
+        actualOutbound: leakRow.actual_outbound,
+      }
+    : { status: "ok" }
+}
+
+/**
+ * Runs a single service scan: like {@link runServiceLeakCheck} but resolves to
+ * the richer {@link ServiceScanState} (expected + actual outbound). Never throws;
+ * request failures and non-200 responses collapse to an `error` verdict.
+ */
+export async function runServiceScan(
+  target: string,
+  runTest: (target: string) => Promise<
+    | { status: 200; data: RoutingTestResponse }
+    | { status: number; data: unknown }
+  >
+): Promise<ServiceScanState> {
+  try {
+    const response = await runTest(target)
+
+    return response.status === 200
+      ? evaluateServiceScan(response.data as RoutingTestResponse)
+      : { status: "error" }
+  } catch {
+    return { status: "error" }
+  }
+}
+
+/** Number of inline domains for a list (0 when none). Used for the scanner's "# affected domains". */
+export function getServiceDomainCount(list: ListConfig): number {
+  return (list.domains ?? []).filter((domain) => domain.trim().length > 0).length
+}
+
+/**
  * Runs the leak check for a single service target. `runTest` performs the
  * actual routing-test request (so both single-row and batch callers share this
  * verdict logic and the same error/200 handling). Never throws: request

@@ -47,6 +47,10 @@ export function AppSidebar(props: ComponentProps<typeof Sidebar>) {
             url: "/services",
           },
           {
+            title: t("nav.items.leakScanner"),
+            url: "/leak-scanner",
+          },
+          {
             title: t("nav.items.outbounds"),
             url: "/outbounds",
           },

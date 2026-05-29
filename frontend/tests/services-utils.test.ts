@@ -5,12 +5,15 @@ import type { RoutingTestResponse } from "../src/api/generated/model/routingTest
 import {
   collectLeakingDomains,
   evaluateLeakCheck,
+  evaluateServiceScan,
   findIpv4LeakRow,
+  getServiceDomainCount,
   getServiceEntryCount,
   getServiceLeakCheckTarget,
   getServiceOutbound,
   reassignServiceOutbound,
   runServiceLeakCheck,
+  runServiceScan,
   runWithConcurrency,
 } from "../src/pages/services-utils"
 
@@ -213,6 +216,95 @@ describe("runServiceLeakCheck", () => {
     })
 
     expect(verdict).toEqual({ status: "error" })
+  })
+})
+
+describe("evaluateServiceScan", () => {
+  test("captures both expected and actual outbound of the failing IPv4 row", () => {
+    const response = buildRoutingTestResponse([
+      {
+        ip: "8.8.8.8",
+        ok: false,
+        actual_outbound: "rostelecom",
+        expected_outbound: "forestserver_ru",
+      },
+    ])
+
+    expect(evaluateServiceScan(response)).toEqual({
+      status: "leaking",
+      expectedOutbound: "forestserver_ru",
+      actualOutbound: "rostelecom",
+    })
+  })
+
+  test("reports ok when no IPv4 row leaks", () => {
+    const response = buildRoutingTestResponse([
+      {
+        ip: "8.8.8.8",
+        ok: true,
+        actual_outbound: "forestserver_ru",
+        expected_outbound: "forestserver_ru",
+      },
+    ])
+
+    expect(evaluateServiceScan(response)).toEqual({ status: "ok" })
+  })
+})
+
+describe("runServiceScan", () => {
+  test("maps a 200 response into a rich leaking verdict", async () => {
+    const response = buildRoutingTestResponse([
+      {
+        ip: "1.1.1.1",
+        ok: false,
+        actual_outbound: "rostelecom",
+        expected_outbound: "forestserver_ru",
+      },
+    ])
+
+    const verdict = await runServiceScan("example.com", async () => ({
+      status: 200,
+      data: response,
+    }))
+
+    expect(verdict).toEqual({
+      status: "leaking",
+      expectedOutbound: "forestserver_ru",
+      actualOutbound: "rostelecom",
+    })
+  })
+
+  test("treats a non-200 status as an error verdict", async () => {
+    const verdict = await runServiceScan("example.com", async () => ({
+      status: 500,
+      data: { error: "boom" },
+    }))
+
+    expect(verdict).toEqual({ status: "error" })
+  })
+
+  test("treats a thrown request as an error verdict", async () => {
+    const verdict = await runServiceScan("example.com", async () => {
+      throw new Error("network down")
+    })
+
+    expect(verdict).toEqual({ status: "error" })
+  })
+})
+
+describe("getServiceDomainCount", () => {
+  test("counts non-empty inline domains and ignores ip_cidrs", () => {
+    expect(
+      getServiceDomainCount({
+        domains: ["a.com", "b.com", "  ", ""],
+        ip_cidrs: ["1.2.3.0/24"],
+      })
+    ).toBe(2)
+  })
+
+  test("returns 0 for lists with no inline domains", () => {
+    expect(getServiceDomainCount({ ip_cidrs: ["1.2.3.0/24"] })).toBe(0)
+    expect(getServiceDomainCount({})).toBe(0)
   })
 })
 

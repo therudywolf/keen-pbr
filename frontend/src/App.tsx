@@ -47,6 +47,11 @@ const ServicesPage = lazy(() =>
     default: m.ServicesPage,
   })),
 )
+const LeakScannerPage = lazy(() =>
+  import("@/pages/leak-scanner-page").then((m) => ({
+    default: m.LeakScannerPage,
+  })),
+)
 const NotFoundPage = lazy(() =>
   import("@/pages/not-found-page").then((m) => ({ default: m.NotFoundPage })),
 )
@@ -100,6 +105,7 @@ function App() {
           </Route>
           <Route component={RoutingRulesPage} path="/routing-rules" />
           <Route component={ServicesPage} path="/services" />
+          <Route component={LeakScannerPage} path="/leak-scanner" />
           <Route component={NotFoundPage} />
         </Switch>
       </Suspense>
