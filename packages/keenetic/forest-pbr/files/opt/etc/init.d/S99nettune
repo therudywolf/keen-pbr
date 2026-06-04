@@ -1,0 +1,6 @@
+#!/bin/sh
+case "$1" in
+  start|restart|"") [ -x /opt/etc/forest-pbr/nettune.sh ] && /opt/etc/forest-pbr/nettune.sh ;;
+  stop) ;;
+esac
+exit 0
