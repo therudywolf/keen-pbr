@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <cstring>
+#include <set>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -633,6 +634,142 @@ void prune_fw_rule_states_to_realized_sets(
             }
         }
     }
+}
+
+namespace {
+
+// All four set-name spellings a list can produce. Emitting names that have no
+// live set is harmless: the snapshot reader skips sets `ipset save` can't find.
+void append_list_set_names(std::vector<std::string>& out,
+                           const std::string& list_name) {
+    out.push_back("kpbr4_" + list_name);
+    out.push_back("kpbr6_" + list_name);
+    out.push_back("kpbr4d_" + list_name);
+    out.push_back("kpbr6d_" + list_name);
+}
+
+// Routing-relevant identity of a list: everything that can change which IPs
+// land in its sets. TTL and cosmetic fields are deliberately excluded — they
+// don't move traffic, and treating them as changes would flush for nothing.
+std::string list_routing_fingerprint(const ListConfig& list) {
+    std::string fp;
+    if (list.domains) {
+        for (const auto& domain : *list.domains) {
+            fp += domain;
+            fp += '\n';
+        }
+    }
+    fp += "|cidrs|";
+    if (list.ip_cidrs) {
+        for (const auto& cidr : *list.ip_cidrs) {
+            fp += cidr;
+            fp += '\n';
+        }
+    }
+    fp += "|src|";
+    fp += list.url.value_or("");
+    fp += '|';
+    fp += list.file.value_or("");
+    return fp;
+}
+
+// Routing-relevant identity of a rule, excluding the list names themselves
+// (those are keyed separately). Two rules with the same fingerprint route
+// their lists identically.
+std::string rule_routing_fingerprint(const RouteRule& rule) {
+    std::string fp;
+    fp += route_rule_enabled(rule) ? "on|" : "off|";
+    fp += rule.outbound;
+    fp += '|';
+    fp += rule.proto.value_or("");
+    fp += '|';
+    fp += rule.src_addr.value_or("");
+    fp += '|';
+    fp += rule.dest_addr.value_or("");
+    fp += '|';
+    fp += rule.src_port.value_or("");
+    fp += '|';
+    fp += rule.dest_port.value_or("");
+    return fp;
+}
+
+// list name -> concatenated fingerprints of every enabled rule referencing it,
+// in config order. Captures outbound/selector changes and gained/lost rules.
+std::map<std::string, std::string> build_list_rule_context(const Config& cfg) {
+    std::map<std::string, std::string> context;
+    const auto& rules =
+        cfg.route.value_or(RouteConfig{}).rules.value_or(std::vector<RouteRule>{});
+    for (const auto& rule : rules) {
+        const std::string fp = rule_routing_fingerprint(rule);
+        for (const auto& list_name : route_rule_lists(rule)) {
+            context[list_name] += fp;
+            context[list_name] += ";";
+        }
+    }
+    return context;
+}
+
+} // namespace
+
+std::vector<std::string> changed_kpbr_set_names(const Config& before,
+                                                const Config& after) {
+    static const std::map<std::string, ListConfig> kNoLists;
+    const auto& lists_before = before.lists ? *before.lists : kNoLists;
+    const auto& lists_after = after.lists ? *after.lists : kNoLists;
+
+    const auto ctx_before = build_list_rule_context(before);
+    const auto ctx_after = build_list_rule_context(after);
+
+    // Union of list names on both sides: a removed list's sets still hold
+    // conntrack entries that must be re-evaluated, so it counts as changed.
+    std::set<std::string> names;
+    for (const auto& [name, _] : lists_before) names.insert(name);
+    for (const auto& [name, _] : lists_after) names.insert(name);
+    for (const auto& [name, _] : ctx_before) names.insert(name);
+    for (const auto& [name, _] : ctx_after) names.insert(name);
+
+    std::vector<std::string> changed;
+    for (const auto& name : names) {
+        const auto before_it = lists_before.find(name);
+        const auto after_it = lists_after.find(name);
+        const bool in_before = before_it != lists_before.end();
+        const bool in_after = after_it != lists_after.end();
+
+        bool differs = in_before != in_after;
+        if (!differs && in_before) {
+            differs = list_routing_fingerprint(before_it->second) !=
+                      list_routing_fingerprint(after_it->second);
+        }
+        if (!differs) {
+            const auto cb = ctx_before.find(name);
+            const auto ca = ctx_after.find(name);
+            const std::string& fp_before =
+                cb == ctx_before.end() ? std::string() : cb->second;
+            const std::string& fp_after =
+                ca == ctx_after.end() ? std::string() : ca->second;
+            differs = fp_before != fp_after;
+        }
+        if (differs) {
+            append_list_set_names(changed, name);
+        }
+    }
+    return changed;
+}
+
+std::vector<std::string> kpbr_set_names_for_outbound(const Config& cfg,
+                                                     const std::string& tag) {
+    std::vector<std::string> names;
+    const auto& rules =
+        cfg.route.value_or(RouteConfig{}).rules.value_or(std::vector<RouteRule>{});
+    for (const auto& rule : rules) {
+        if (!route_rule_enabled(rule) || rule.outbound != tag) {
+            continue;
+        }
+        for (const auto& list_name : route_rule_lists(rule)) {
+            append_list_set_names(names, list_name);
+        }
+    }
+    return names;
 }
 
 } // namespace keen_pbr3

@@ -64,12 +64,15 @@ public:
     // kernel acknowledged the delete (or the entry was already gone).
     using ConntrackDeleter = std::function<bool(const ConntrackEntry&)>;
 
-    // Returns a snapshot of every IP/CIDR currently in any of our kpbr* sets,
-    // packed into an IpSet for O(W) lookup. Real implementation shells out to
+    // Returns a snapshot of the IPs/CIDRs currently in our kpbr* sets, packed
+    // into an IpSet for O(W) lookup. Real implementation shells out to
     // `ipset list -n` and `ipset save <set>`; tests inject a prebuilt IpSet.
-    // Returns an empty unique_ptr on failure (e.g. ipset binary missing); the
-    // flush then becomes a no-op (we never delete on a stale or absent snapshot).
-    using KpbrIpsetSnapshotProvider = std::function<std::unique_ptr<IpSet>()>;
+    // `only_sets` narrows the snapshot to those exact set names; an empty
+    // vector means "every kpbr* set". Returns an empty unique_ptr on failure
+    // (e.g. ipset binary missing); the flush then becomes a no-op (we never
+    // delete on a stale or absent snapshot).
+    using KpbrIpsetSnapshotProvider = std::function<std::unique_ptr<IpSet>(
+        const std::vector<std::string>& only_sets)>;
 
     explicit ConntrackFlusher(BlockingExecutor* executor);
 
@@ -84,12 +87,19 @@ public:
     // Submit one flush pass. Returns the number of work items queued (0 or 1,
     // since the walk is one task — keeps the executor queue from being flooded
     // by repeated SIGUSR1 storms). Non-blocking; work runs on the executor.
-    int flush_async();
+    //
+    // `only_sets` scopes the flush to those set names. Pass the sets whose
+    // routing actually changed: a flush is a forced disconnect for every
+    // matching flow, and unscoped it tears long-lived sessions (IoT MQTT,
+    // SSH, streaming) to EVERY destination the daemon routes, whenever any
+    // single list is edited. An empty vector keeps the "all kpbr* sets"
+    // behaviour and is only correct when the whole ruleset is rebuilt.
+    int flush_async(std::vector<std::string> only_sets = {});
 
     // Run one flush pass synchronously. Returns the number of conntrack
     // entries deleted, or -1 on hard failure (e.g. netlink unavailable).
     // Exposed for unit tests; production callers should use flush_async().
-    int flush_sync();
+    int flush_sync(const std::vector<std::string>& only_sets = {});
 
 private:
     BlockingExecutor* executor_;
@@ -102,7 +112,8 @@ private:
 // Returns nullptr if `ipset list -n` fails (e.g. ipset binary missing or
 // kernel module unloaded). Exposed in the header so the daemon can override
 // it in tests without rebuilding the production flusher.
-std::unique_ptr<IpSet> default_kpbr_ipset_snapshot();
+std::unique_ptr<IpSet> default_kpbr_ipset_snapshot(
+    const std::vector<std::string>& only_sets = {});
 
 // Default netlink-backed conntrack walker. Opens a NETLINK_NETFILTER socket,
 // issues an IPCTNL_MSG_CT_GET dump, parses each entry, and invokes the

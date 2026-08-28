@@ -23,6 +23,7 @@ add_executable(keen-pbr-tests
   test_config_validation.cpp
   test_list_parser.cpp
   test_routing_state.cpp
+  test_changed_kpbr_sets.cpp
   test_runtime_interface_inventory.cpp
   test_api_runtime_interfaces.cpp
   test_api_test_routing.cpp

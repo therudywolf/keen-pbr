@@ -188,9 +188,14 @@ void Daemon::handle_urltest_selection_change(const std::string& urltest_tag,
         }
         // Urltest swap routed an outbound to a different interface; flows
         // that were already pinned to the previous nexthop via FASTNAT
-        // would otherwise keep using the old path until they expire.
+        // would otherwise keep using the old path until they expire. Only
+        // that outbound's destinations moved, so scope the flush to its sets
+        // — an unscoped flush would drop every other PBR-routed session too.
         if (conntrack_flusher_) {
-            conntrack_flusher_->flush_async();
+            auto scoped = kpbr_set_names_for_outbound(config_, urltest_tag);
+            if (!scoped.empty()) {
+                conntrack_flusher_->flush_async(std::move(scoped));
+            }
         }
     }, "urltest-selection-change:" + urltest_tag);
 }
@@ -633,6 +638,10 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
         autoheal_worker_task_id_ = -1;
     }
 
+    // Keep the outgoing config so the post-apply conntrack flush can be aimed
+    // at only the sets whose routing actually changed (see the flush below).
+    Config previous_config = config_;
+
     outbound_marks_ = std::move(prepared.outbound_marks);
     config_ = std::move(prepared.config);
     firewall_state_.set_outbound_marks(outbound_marks_);
@@ -665,10 +674,19 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
     // Config (and therefore ipset membership) may have changed in a way that
     // alters routing. Existing conntrack entries cached by the kernel's
     // FASTNAT path still carry their old fwmark and would skip mangle for the
-    // remainder of their natural lifetime. Trigger an async flush so flows
-    // whose dst is in any of our kpbr* sets get re-evaluated on next packet.
+    // remainder of their natural lifetime, so those flows need a flush to be
+    // re-evaluated on their next packet.
+    //
+    // Scope it to the lists whose contents or routing actually changed. A
+    // flush is a forced disconnect: flushing every kpbr* set on any config
+    // save tears every long-lived PBR-routed session on the network — IoT
+    // MQTT keepalives, SSH, streaming — for an edit that may have touched one
+    // unrelated list. When nothing routing-relevant changed, skip entirely.
     if (conntrack_flusher_) {
-        conntrack_flusher_->flush_async();
+        auto changed = changed_kpbr_set_names(previous_config, config_);
+        if (!changed.empty()) {
+            conntrack_flusher_->flush_async(std::move(changed));
+        }
     }
 }
 

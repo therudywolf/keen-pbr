@@ -31,11 +31,16 @@ export interface TrafficMetricsOutbound {
   bytes: number
 }
 
-/** Per-rule traffic counters from `GET /api/metrics/traffic`. */
+/** Per-rule-group traffic counters from `GET /api/metrics/traffic`. */
 export interface TrafficMetricsRule {
+  /** First element of rule_indices, or -1 when unattributable. */
   index: number
+  /** Every route.rules index this entry's counters cover (may be empty). */
+  rule_indices?: number[]
   outbound: string
   lists: string[]
+  /** Kernel set names that contributed counters. */
+  sets?: string[]
   packets: number
   bytes: number
 }
@@ -194,7 +199,11 @@ export function MetricsPage() {
             className="font-mono font-medium tabular-nums"
             key={`rule-${rule.index}-index`}
           >
-            #{rule.index}
+            {(rule.rule_indices?.length ?? 0) > 0
+              ? rule.rule_indices!.map((i) => `#${i}`).join("+")
+              : rule.index >= 0
+                ? `#${rule.index}`
+                : "—"}
           </span>,
           <span className="font-mono" key={`rule-${rule.index}-outbound`}>
             {rule.outbound}

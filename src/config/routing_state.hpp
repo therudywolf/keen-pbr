@@ -61,4 +61,27 @@ void prune_fw_rule_states_to_realized_sets(
     std::vector<RuleState>& rule_states,
     const ListSetUsageFn& list_usage_fn);
 
+// Names of the kpbr* sets whose routing may differ between two configs.
+//
+// A conntrack flush is a forced disconnect of every matching flow, so it must
+// be aimed at exactly the destinations whose routing actually changed —
+// flushing everything tears unrelated long-lived sessions (IoT MQTT keepalives,
+// SSH, streaming) on every unrelated list edit. A list's sets are returned when
+// its own contents changed (domains, CIDRs, file/url source), when the outbound
+// or selector of a rule referencing it changed, or when the list gained/lost a
+// referencing rule. Returns set names for BOTH families and both static and
+// dynamic variants; a name that has no live set is simply skipped by the
+// snapshot reader.
+//
+// An empty result means "nothing routing-relevant changed" — the caller should
+// then skip the flush entirely rather than fall back to flushing everything.
+std::vector<std::string> changed_kpbr_set_names(const Config& before,
+                                                const Config& after);
+
+// Names of the kpbr* sets belonging to enabled rules that route to `tag`
+// (matching either the rule's literal outbound or, for URLTEST parents, the
+// tag itself). Used to scope a flush to one outbound whose nexthop moved.
+std::vector<std::string> kpbr_set_names_for_outbound(const Config& cfg,
+                                                     const std::string& tag);
+
 } // namespace keen_pbr3

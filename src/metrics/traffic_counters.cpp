@@ -100,58 +100,61 @@ std::optional<CountingLine> parse_counting_line(const std::string& line) {
     return CountingLine{*mark, *packets, *bytes};
 }
 
-// Parse the route-rule index N out of a "kpbrm_<N>" set name. Returns nullopt
-// for any other set name (e.g. the kpbrd_<list> domain sets) or a malformed
-// suffix, so non-rule match-set clauses are ignored rather than miscounted.
-std::optional<uint32_t> parse_kpbrm_index(const std::string& set_name) {
-    static constexpr const char kPrefix[] = "kpbrm_";
-    static constexpr std::size_t kPrefixLen = sizeof(kPrefix) - 1;
-    if (set_name.size() <= kPrefixLen ||
-        set_name.compare(0, kPrefixLen, kPrefix) != 0) {
-        return std::nullopt;
-    }
-    const auto value = parse_u64_dec(set_name.substr(kPrefixLen));
-    if (!value.has_value()) {
-        return std::nullopt;
-    }
-    return static_cast<uint32_t>(*value);
+// True for any set name this daemon owns: the combined kpbrm_<N> list:sets and
+// the per-list kpbr4_/kpbr4d_/kpbr6_/kpbr6d_<list> sets. A plain prefix check
+// covers all five spellings; foreign sets (e.g. NDM's _NDM_* sets) never start
+// with "kpbr".
+bool is_kpbr_set(const std::string& set_name) {
+    return set_name.rfind("kpbr", 0) == 0;
 }
 
-// Extract (index, packets, bytes) from one listing line if it is a counting
-// line (same MARK-xset predicate as parse_counting_line, so each set's RETURN
-// companion rule is not counted) that also carries a "match-set kpbrm_<N> dst"
-// clause. Returns nullopt for header rows, non-MARK rules, and lines whose
-// match-set is not a kpbrm_<N> rule set.
-struct RuleCountingLine {
-    uint32_t index;
+// Extract (set_name, packets, bytes) from one listing line if it is a counting
+// line that matches a kpbr* destination set. A counting line's target is
+// either MARK with an xset spec (the per-outbound parser's predicate — so each
+// set's RETURN companion rule is not double-counted) or DROP (a blackhole
+// rule, which has no mark). Returns nullopt for header rows, RETURN/ACCEPT
+// rules, and lines whose match-set is not one of ours.
+struct SetCountingLine {
+    std::string set_name;
     uint64_t packets;
     uint64_t bytes;
 };
 
-std::optional<RuleCountingLine> parse_rule_counting_line(const std::string& line) {
-    // Reuse the per-outbound predicate so only MARK xset rules are counted; the
-    // mark value itself is irrelevant here, only that the line is a MARK rule.
-    const auto counting = parse_counting_line(line);
-    if (!counting.has_value()) {
+std::optional<SetCountingLine> parse_set_counting_line(const std::string& line) {
+    const auto tokens = split_ws(line);
+    if (tokens.size() < 3) {
         return std::nullopt;
     }
 
-    const auto tokens = split_ws(line);
-    // Find "match-set" "<set>" and read the rule index from the set name.
-    std::optional<uint32_t> index;
+    if (tokens[2] == "MARK") {
+        // Only MARK rules carrying the xset spec count (mirrors
+        // parse_counting_line); the mark value itself is irrelevant here.
+        if (!parse_counting_line(line).has_value()) {
+            return std::nullopt;
+        }
+    } else if (tokens[2] != "DROP") {
+        return std::nullopt;
+    }
+
+    // Find the "match-set" "<set>" pair and keep the first kpbr* set name.
+    std::optional<std::string> set_name;
     for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
-        if (tokens[i] == "match-set") {
-            index = parse_kpbrm_index(tokens[i + 1]);
-            if (index.has_value()) {
-                break;
-            }
+        if (tokens[i] == "match-set" && is_kpbr_set(tokens[i + 1])) {
+            set_name = tokens[i + 1];
+            break;
         }
     }
-    if (!index.has_value()) {
+    if (!set_name.has_value()) {
         return std::nullopt;
     }
 
-    return RuleCountingLine{*index, counting->packets, counting->bytes};
+    const auto packets = parse_u64_dec(tokens[0]);
+    const auto bytes = parse_u64_dec(tokens[1]);
+    if (!packets.has_value() || !bytes.has_value()) {
+        return std::nullopt;
+    }
+
+    return SetCountingLine{std::move(*set_name), *packets, *bytes};
 }
 
 }  // namespace
@@ -195,28 +198,28 @@ std::vector<OutboundTraffic> parse_outbound_traffic(
     return result;
 }
 
-std::vector<RuleTraffic> parse_rule_traffic(const std::string& iptables_output) {
-    // Accumulate per observed rule index. std::map keeps indices sorted
+std::vector<SetTraffic> parse_set_traffic(const std::string& iptables_output) {
+    // Accumulate per observed set name. std::map keeps names sorted
     // ascending, which is the deterministic order we return.
-    std::map<uint32_t, RuleTraffic> totals;
+    std::map<std::string, SetTraffic> totals;
 
     std::istringstream stream(iptables_output);
     std::string line;
     while (std::getline(stream, line)) {
-        const auto counting = parse_rule_counting_line(line);
+        auto counting = parse_set_counting_line(line);
         if (!counting.has_value()) {
             continue;
         }
-        auto& entry = totals[counting->index];
-        entry.index = counting->index;
+        auto& entry = totals[counting->set_name];
+        entry.set_name = counting->set_name;
         entry.packets += counting->packets;
         entry.bytes += counting->bytes;
     }
 
-    std::vector<RuleTraffic> result;
+    std::vector<SetTraffic> result;
     result.reserve(totals.size());
-    for (auto& [index, entry] : totals) {
-        (void)index;
+    for (auto& [name, entry] : totals) {
+        (void)name;
         result.push_back(std::move(entry));
     }
     return result;

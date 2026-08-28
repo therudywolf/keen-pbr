@@ -367,7 +367,9 @@ ConntrackFlusher::ConntrackFlusher(BlockingExecutor* executor)
                        [](const ConntrackEntry& e) {
                            return default_conntrack_delete(e);
                        },
-                       []() { return default_kpbr_ipset_snapshot(); }) {}
+                       [](const std::vector<std::string>& only_sets) {
+                           return default_kpbr_ipset_snapshot(only_sets);
+                       }) {}
 
 ConntrackFlusher::ConntrackFlusher(BlockingExecutor* executor,
                                    ConntrackWalker walker,
@@ -378,7 +380,7 @@ ConntrackFlusher::ConntrackFlusher(BlockingExecutor* executor,
       deleter_(std::move(deleter)),
       snapshot_provider_(std::move(snapshot_provider)) {}
 
-int ConntrackFlusher::flush_async() {
+int ConntrackFlusher::flush_async(std::vector<std::string> only_sets) {
     if (!executor_) {
         // Defensive: a daemon-less direct caller (tests use flush_sync) won't
         // hit this; production callers always supply the daemon's executor.
@@ -388,9 +390,9 @@ int ConntrackFlusher::flush_async() {
     }
     const bool posted = executor_->try_post(
         "conntrack-flush",
-        [this]() {
+        [this, only_sets = std::move(only_sets)]() {
             try {
-                const int deleted = flush_sync();
+                const int deleted = flush_sync(only_sets);
                 if (deleted < 0) {
                     Logger::instance().verbose(
                         "conntrack_flush: pass aborted (netlink unavailable)");
@@ -416,12 +418,12 @@ int ConntrackFlusher::flush_async() {
     return 1;
 }
 
-int ConntrackFlusher::flush_sync() {
+int ConntrackFlusher::flush_sync(const std::vector<std::string>& only_sets) {
     if (!walker_ || !deleter_ || !snapshot_provider_) {
         return -1;
     }
 
-    auto kpbr_members = snapshot_provider_();
+    auto kpbr_members = snapshot_provider_(only_sets);
     if (!kpbr_members) {
         // No usable snapshot — refuse to delete anything. Better to leave
         // stale conntrack entries than to flush the wrong flows.
@@ -458,7 +460,41 @@ int ConntrackFlusher::flush_sync() {
     return deleted.load(std::memory_order_relaxed);
 }
 
-std::unique_ptr<IpSet> default_kpbr_ipset_snapshot() {
+std::unique_ptr<IpSet> default_kpbr_ipset_snapshot(
+    const std::vector<std::string>& only_sets) {
+    // Scoped flush: skip enumeration entirely and read just the named sets.
+    // `ipset save` per set is the expensive half of building the snapshot, so
+    // narrowing here is what actually saves the work.
+    if (!only_sets.empty()) {
+        auto snapshot = std::make_unique<IpSet>();
+        int sets_loaded = 0;
+        for (const auto& name : only_sets) {
+            if (!is_kpbr_set_name(name)) {
+                continue;  // never read sets we don't own
+            }
+            auto save_result = safe_exec_capture({"ipset", "save", name},
+                                                 /*suppress_stderr=*/true);
+            if (save_result.exit_code != 0) {
+                // A named set may legitimately not exist yet (freshly added
+                // list, IPv6 set with IPv6 disabled). Skip it.
+                Logger::instance().trace("conntrack_flush_save_skip",
+                                         "set={} exit={}",
+                                         name,
+                                         save_result.exit_code);
+                continue;
+            }
+            parse_ipset_save_members(save_result.stdout_output,
+                                     [&snapshot](const std::string& member) {
+                                         insert_ipset_member(*snapshot, member);
+                                     });
+            ++sets_loaded;
+        }
+        Logger::instance().trace("conntrack_flush_snapshot",
+                                 "scoped=true requested={} sets_loaded={}",
+                                 only_sets.size(), sets_loaded);
+        return snapshot;
+    }
+
     // One `ipset list -n` to learn every set name on the box. Cheap (kernel
     // dumps the names with no member contents).
     auto names_result = safe_exec_capture({"ipset", "list", "-n"},

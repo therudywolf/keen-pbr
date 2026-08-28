@@ -30,3 +30,4 @@ Thumbs.db
 docs/lists-audit.md
 .claude/user-config-snapshot.json
 .claude/*-snapshot.json
+cmake-build-docker/

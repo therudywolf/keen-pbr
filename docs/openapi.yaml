@@ -339,45 +339,73 @@ paths:
                   rules:
                     type: array
                     description: >
-                      Per-route-rule counters, summed across the per-inbound-interface
-                      MARK rules that share each rule's `kpbrm_<index>` match-set.
-                      `index` is the position in `route.rules`. Indices whose set
-                      appears in the listing but has no matching configured rule are
-                      omitted.
+                      Per-rule-group counters. Kernel counters live on match-set
+                      rules, and one consolidated `kpbrm_<N>` list:set can carry
+                      the lists of several route rules that share an outbound, so
+                      each entry attributes its counters to the (possibly
+                      multi-element) group of rules in `rule_indices`. Sets whose
+                      lists resolve to the same rule group merge into one entry.
+                      An entry with `rule_indices: []` and `index: -1` reports
+                      traffic on a set that no configured rule references (stale
+                      kernel state).
                     items:
                       type: object
                       additionalProperties: false
                       required:
                         - index
+                        - rule_indices
                         - outbound
                         - lists
+                        - sets
                         - packets
                         - bytes
                       properties:
                         index:
                           type: integer
                           format: int64
-                          description: Zero-based index of the rule in `route.rules`.
+                          description: >
+                            First element of `rule_indices` (back-compat), or -1
+                            when the entry is unattributable.
                           example: 0
+                        rule_indices:
+                          type: array
+                          items:
+                            type: integer
+                            format: int64
+                          description: >
+                            Zero-based indices of every rule in `route.rules`
+                            whose lists this entry's counters cover, ascending.
+                          example: [1, 2]
                         outbound:
                           type: string
-                          description: Outbound tag the rule routes to (`route.rules[index].outbound`).
+                          description: >
+                            Outbound tag the group routes to; multiple distinct
+                            tags are joined with `+`, `(unknown)` when
+                            unattributable.
                           example: forestserver_ru
                         lists:
                           type: array
                           items:
                             type: string
-                          description: List names attached to the rule (`route.rules[index].list`).
+                          description: >
+                            List names actually counted by this entry's sets (the
+                            realized members, not the rule declaration).
                           example: [openai, anthropic]
+                        sets:
+                          type: array
+                          items:
+                            type: string
+                          description: Kernel set names that contributed counters.
+                          example: [kpbrm_0]
                         packets:
                           type: integer
                           format: int64
-                          description: Packets matched by this rule's MARK rules since the last apply.
+                          description: Packets matched since the last apply.
                           example: 40514
                         bytes:
                           type: integer
                           format: int64
-                          description: Bytes matched by this rule's MARK rules since the last apply.
+                          description: Bytes matched since the last apply.
                           example: 12345678
                   note:
                     type: string
@@ -390,8 +418,10 @@ paths:
                     bytes: 12345678
                 rules:
                   - index: 0
+                    rule_indices: [0]
                     outbound: forestserver_ru
                     lists: [openai, anthropic]
+                    sets: [kpbrm_0]
                     packets: 40514
                     bytes: 12345678
                 note: counters accumulate since the last firewall apply

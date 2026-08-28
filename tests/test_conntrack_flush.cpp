@@ -99,7 +99,7 @@ TEST_CASE("conntrack_flush deletes only entries whose dst is in the kpbr snapsho
         // Rebuild the snapshot from a copyable members vector on each call:
         // a move-captured unique_ptr would make the lambda move-only, which
         // std::function (KpbrIpsetSnapshotProvider) cannot store.
-        [snapshot_members]() -> std::unique_ptr<IpSet> {
+        [snapshot_members](const std::vector<std::string>&) -> std::unique_ptr<IpSet> {
             return make_snapshot(snapshot_members);
         });
 
@@ -149,7 +149,7 @@ TEST_CASE("conntrack_flush handles IPv6 dst addresses against v6 CIDR members") 
         // Rebuild the snapshot from a copyable members vector on each call:
         // a move-captured unique_ptr would make the lambda move-only, which
         // std::function (KpbrIpsetSnapshotProvider) cannot store.
-        [snapshot_members]() -> std::unique_ptr<IpSet> {
+        [snapshot_members](const std::vector<std::string>&) -> std::unique_ptr<IpSet> {
             return make_snapshot(snapshot_members);
         });
 
@@ -183,7 +183,7 @@ TEST_CASE("conntrack_flush refuses to delete when snapshot provider returns null
             deleted_count->fetch_add(1);
             return true;
         },
-        []() -> std::unique_ptr<IpSet> { return nullptr; });
+        [](const std::vector<std::string>&) -> std::unique_ptr<IpSet> { return nullptr; });
 
     const int rc = flusher.flush_sync();
     CHECK(rc == -1);            // hard failure
@@ -221,7 +221,7 @@ TEST_CASE("conntrack_flush skips entries with empty dst IP without crashing") {
         // Rebuild the snapshot from a copyable members vector on each call:
         // a move-captured unique_ptr would make the lambda move-only, which
         // std::function (KpbrIpsetSnapshotProvider) cannot store.
-        [snapshot_members]() -> std::unique_ptr<IpSet> {
+        [snapshot_members](const std::vector<std::string>&) -> std::unique_ptr<IpSet> {
             return make_snapshot(snapshot_members);
         });
 
@@ -264,7 +264,7 @@ TEST_CASE("conntrack_flush continues even when deleter throws on one entry") {
         // Rebuild the snapshot from a copyable members vector on each call:
         // a move-captured unique_ptr would make the lambda move-only, which
         // std::function (KpbrIpsetSnapshotProvider) cannot store.
-        [snapshot_members]() -> std::unique_ptr<IpSet> {
+        [snapshot_members](const std::vector<std::string>&) -> std::unique_ptr<IpSet> {
             return make_snapshot(snapshot_members);
         });
 
@@ -303,7 +303,7 @@ TEST_CASE("conntrack_flush returns 0 when no entries are in the snapshot") {
         // Rebuild the snapshot from a copyable members vector on each call:
         // a move-captured unique_ptr would make the lambda move-only, which
         // std::function (KpbrIpsetSnapshotProvider) cannot store.
-        [snapshot_members]() -> std::unique_ptr<IpSet> {
+        [snapshot_members](const std::vector<std::string>&) -> std::unique_ptr<IpSet> {
             return make_snapshot(snapshot_members);
         });
 
@@ -354,7 +354,7 @@ TEST_CASE("conntrack_flush does not invalidate non-PBR flows (e.g. LAN-LAN, publ
         // Rebuild the snapshot from a copyable members vector on each call:
         // a move-captured unique_ptr would make the lambda move-only, which
         // std::function (KpbrIpsetSnapshotProvider) cannot store.
-        [snapshot_members]() -> std::unique_ptr<IpSet> {
+        [snapshot_members](const std::vector<std::string>&) -> std::unique_ptr<IpSet> {
             return make_snapshot(snapshot_members);
         });
 
