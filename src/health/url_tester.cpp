@@ -60,7 +60,18 @@ URLTestResult URLTester::test_once(const std::string& url, uint32_t fwmark,
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_callback);
+    // Mandatory in a threaded process: libcurl built without AsynchDNS (the
+    // Entware/Keenetic build is) implements the name-resolution timeout with
+    // alarm() + SIGALRM + siglongjmp. The signal is delivered to an arbitrary
+    // thread, whose longjmp then unwinds a stack it does not own — a crash
+    // that fires exactly when DNS is slow or the WAN is down. NOSIGNAL makes
+    // libcurl use its own timeout instead.
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout_ms));
+    // With NOSIGNAL the connect phase needs its own bound, otherwise a black-
+    // holed route can hold the probe for the full request timeout.
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS,
+                     static_cast<long>(timeout_ms));
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "keen-pbr-urltest");

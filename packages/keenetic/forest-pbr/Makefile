@@ -53,7 +53,12 @@ ifneq ($(BUILD_VARIANT),headless)
 endif
 endef
 
+# Without this the binary reports the KEEN_PBR_RELEASE baked into version.mk
+# (a placeholder "1") while the .ipk carries the real, git-derived release, so
+# `forest-pbr --version` and /api/health/service can't identify what is
+# actually deployed. Pass the resolved release through to the build.
 CMAKE_OPTIONS += \
+	-DKEEN_PBR_RELEASE:STRING=$(PKG_RELEASE) \
 	-DKEEN_PBR_DEFAULT_CONFIG_PATH:STRING=/opt/etc/forest-pbr/config.json \
 	-DKEEN_PBR_SYSTEM_RESOLVER_HOOK:STRING=/opt/usr/lib/forest-pbr/dnsmasq.sh \
 	-DKEEN_PBR_TARGET_OS:STRING=keenetic \

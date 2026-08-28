@@ -133,7 +133,14 @@ std::string HttpClient::download(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_ctx);
+    // See the note in url_tester.cpp: without NOSIGNAL, a libcurl built
+    // without AsynchDNS times out name resolution via alarm()/SIGALRM and
+    // siglongjmps out of whichever thread the signal lands on. List refreshes
+    // run on executor threads, so this is a live crash whenever DNS stalls.
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout_.count()));
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT,
+                     static_cast<long>(timeout_.count()));
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent_.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
@@ -211,7 +218,10 @@ ConditionalDownloadResult HttpClient::download_conditional(
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_ctx);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headers);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT,
+                     static_cast<long>(timeout_.count()));
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT,
                      static_cast<long>(timeout_.count()));
     curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent_.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
