@@ -24,6 +24,7 @@ add_executable(keen-pbr-tests
   test_list_parser.cpp
   test_routing_state.cpp
   test_changed_kpbr_sets.cpp
+  test_list_audit.cpp
   test_runtime_interface_inventory.cpp
   test_api_runtime_interfaces.cpp
   test_api_test_routing.cpp
@@ -41,6 +42,7 @@ add_executable(keen-pbr-tests
   ../src/config/config_writer.cpp
   ../src/crash/crash_diagnostics.cpp
   ../src/config/routing_state.cpp
+  ../src/config/list_audit.cpp
   ../src/firewall/iptables_verifier.cpp
   ../src/firewall/nftables_verifier.cpp
   ../src/firewall/firewall_verifier.cpp
@@ -174,6 +176,7 @@ add_executable(keen-pbr-firewall-it
   ../src/config/config.cpp
   ../src/config/list_parser.cpp
   ../src/config/routing_state.cpp
+  ../src/config/list_audit.cpp
   ../src/dns/dns_router.cpp
   ../src/dns/dns_probe_server.cpp
   ../src/dns/dns_server.cpp

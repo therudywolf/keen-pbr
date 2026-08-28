@@ -426,6 +426,98 @@ paths:
                     bytes: 12345678
                 note: counters accumulate since the last firewall apply
 
+  /api/lists/audit:
+    get:
+      summary: Advisory audit of the lists in use
+      description: >
+        Reports list contents that are likely to misroute traffic. Advisory
+        only: these findings never block a config save, because both kinds are
+        judgement calls rather than errors.
+
+        `oversized_range` — an IP range broader than a /16 (or an IPv6 prefix
+        shorter than /48) in a list referenced by an enabled rule. A range this
+        wide carries unrelated services with it; one such list held 68 CIDRs
+        covering 86 million addresses across four cloud providers, which split
+        smart-home devices across two paths depending on which DNS answer they
+        got.
+
+        `shadowed_domain` — a domain entry that is a parent of an entry in a
+        different list routing to a different outbound. dnsmasq's
+        `ipset=/example.com/` matches every subdomain, so the broader entry
+        silently wins and the more specific list appears to stop working.
+
+        Only lists referenced by enabled rules are examined. Entries that fail
+        to resolve are NOT reported here — that needs live DNS, which the leak
+        scanner covers.
+      operationId: getListsAudit
+      responses:
+        "200":
+          description: Advisories for the lists currently in use
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [advisories, note]
+                properties:
+                  advisories:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, list, entry, message]
+                      properties:
+                        kind:
+                          type: string
+                          enum: [oversized_range, shadowed_domain]
+                        list:
+                          type: string
+                          description: List holding the offending entry.
+                          example: signal
+                        entry:
+                          type: string
+                          description: The offending entry itself.
+                          example: 18.128.0.0/9
+                        message:
+                          type: string
+                          description: Rendered, human-readable summary.
+                        addresses:
+                          type: integer
+                          format: int64
+                          description: >
+                            oversized_range only. IPv4 addresses covered; 0 for
+                            IPv6, where the prefix length carries the meaning.
+                          example: 8388608
+                        prefix_length:
+                          type: integer
+                          description: oversized_range only. The CIDR prefix length.
+                          example: 9
+                        other_list:
+                          type: string
+                          description: shadowed_domain only. The list being shadowed.
+                          example: drive
+                        other_entry:
+                          type: string
+                          description: shadowed_domain only. The entry being shadowed.
+                          example: www.googleapis.com
+                  note:
+                    type: string
+                    example: advisory only — these never block a config save
+              example:
+                advisories:
+                  - kind: oversized_range
+                    list: signal
+                    entry: 18.128.0.0/9
+                    addresses: 8388608
+                    prefix_length: 9
+                    message: "list 'signal' routes 18.128.0.0/9 (8388608 addresses) — a range this broad carries unrelated services with it"
+                  - kind: shadowed_domain
+                    list: discord
+                    entry: googleapis.com
+                    other_list: drive
+                    other_entry: www.googleapis.com
+                    message: "'googleapis.com' in list 'discord' also matches 'www.googleapis.com' from list 'drive', which routes elsewhere — the broader entry wins for every subdomain"
+                note: advisory only — these never block a config save
+
   /api/dns/test:
     get:
       summary: Stream DNS test queries

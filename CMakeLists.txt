@@ -224,6 +224,7 @@ set(SOURCES
   src/config/config.cpp
   src/config/config_writer.cpp
   src/config/routing_state.cpp
+  src/config/list_audit.cpp
   src/config/list_parser.cpp
   src/lists/ipset.cpp
   src/lists/kernel_set_tester.cpp
@@ -299,6 +300,7 @@ if(WITH_API)
     src/api/handler_runtime_interfaces.cpp
     src/api/handler_runtime_outbounds.cpp
     src/api/handler_metrics_traffic.cpp
+    src/api/handler_lists_audit.cpp
     src/api/handler_autoheal.cpp
     src/api/handler_test_routing.cpp
     src/api/handler_dns_test.cpp
