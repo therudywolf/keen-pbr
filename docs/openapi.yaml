@@ -446,7 +446,12 @@ paths:
         `ipset=/example.com/` matches every subdomain, so the broader entry
         silently wins and the more specific list appears to stop working.
 
-        Only lists referenced by enabled rules are examined. Entries that fail
+        `unused_list` — a list with content that no enabled rule references, so
+        it routes nothing. This is a half-finished intent that reads as done:
+        the curated list sits in the UI looking correct while its traffic takes
+        the default path.
+
+        The two content checks examine only lists referenced by enabled rules. Entries that fail
         to resolve are NOT reported here — that needs live DNS, which the leak
         scanner covers.
       operationId: getListsAudit
@@ -468,7 +473,7 @@ paths:
                       properties:
                         kind:
                           type: string
-                          enum: [oversized_range, shadowed_domain]
+                          enum: [oversized_range, shadowed_domain, unused_list]
                         list:
                           type: string
                           description: List holding the offending entry.
@@ -499,6 +504,12 @@ paths:
                           type: string
                           description: shadowed_domain only. The entry being shadowed.
                           example: www.googleapis.com
+                        entry_count:
+                          type: integer
+                          description: >
+                            unused_list only. Inline entries the list holds; 0
+                            for a list sourced purely from a URL or file.
+                          example: 40
                   note:
                     type: string
                     example: advisory only — these never block a config save
@@ -516,6 +527,11 @@ paths:
                     other_list: drive
                     other_entry: www.googleapis.com
                     message: "'googleapis.com' in list 'discord' also matches 'www.googleapis.com' from list 'drive', which routes elsewhere — the broader entry wins for every subdomain"
+                  - kind: unused_list
+                    list: google_disk
+                    entry: ""
+                    entry_count: 40
+                    message: "list 'google_disk' holds 40 entries but no enabled rule references it — it routes nothing"
                 note: advisory only — these never block a config save
 
   /api/dns/test:

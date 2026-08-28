@@ -43,6 +43,11 @@ struct ListAdvisory {
         // `entry` in `list` is a parent domain of `other_entry` in
         // `other_list`, and the two lists route to different outbounds.
         ShadowedDomain,
+        // The list exists and has entries but no enabled rule references it,
+        // so it routes nothing. Almost always a half-finished intent: the
+        // operator curated the domains and never wired the rule, then reads
+        // the list's presence as proof the traffic is handled.
+        UnusedList,
     };
 
     Kind kind{Kind::OversizedRange};
@@ -52,6 +57,7 @@ struct ListAdvisory {
     std::string other_entry;  // ShadowedDomain: the entry being shadowed
     std::uint64_t addresses{0};  // OversizedRange: IPv4 addresses covered (0 for IPv6)
     int prefix_length{0};        // OversizedRange: the CIDR's prefix length
+    std::size_t entry_count{0};  // UnusedList: how many entries go unused
     std::string message;      // rendered, human-readable summary
 
     // Stable machine-readable name for the kind, used in the API payload.
@@ -63,12 +69,14 @@ struct ListAdvisory {
 // service's own allocation rarely exceeds it.
 inline constexpr std::uint64_t kDefaultOversizedRangeThreshold = 65536;
 
-// Audit the lists referenced by enabled route rules.
+// Audit a config's lists.
 //
-// Only lists actually in use are examined: an unused list routes nothing, so
-// its contents cannot misroute anything. `threshold` is the smallest address
-// count that still counts as oversized (a CIDR covering strictly more than
-// this is reported).
+// Content checks (OversizedRange, ShadowedDomain) look only at lists in use:
+// an unreferenced list routes nothing, so its contents cannot misroute
+// anything. Being unreferenced is itself reported, once, as UnusedList.
+//
+// `threshold` is the smallest address count that still counts as oversized
+// (a CIDR covering strictly more than this is reported).
 //
 // Results are ordered deterministically (by kind, then list, then entry) so
 // the UI and tests see a stable sequence.

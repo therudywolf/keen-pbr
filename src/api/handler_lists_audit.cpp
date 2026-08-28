@@ -32,6 +32,9 @@ void register_lists_audit_handler(ApiServer& server, ApiContext& ctx) {
                     entry["other_list"] = advisory.other_list;
                     entry["other_entry"] = advisory.other_entry;
                     break;
+                case ListAdvisory::Kind::UnusedList:
+                    entry["entry_count"] = advisory.entry_count;
+                    break;
             }
             advisories.push_back(std::move(entry));
         }

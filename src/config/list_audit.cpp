@@ -121,6 +121,8 @@ const char* ListAdvisory::kind_name(Kind kind) {
             return "oversized_range";
         case Kind::ShadowedDomain:
             return "shadowed_domain";
+        case Kind::UnusedList:
+            return "unused_list";
     }
     return "unknown";
 }
@@ -237,6 +239,45 @@ std::vector<ListAdvisory> audit_lists(const Config& cfg,
                 parent.raw, parent.list, child.raw, child.list);
             advisories.push_back(std::move(advisory));
         }
+    }
+
+    // --- Unused lists -----------------------------------------------------
+    // A list with entries that no enabled rule references. This is the shape
+    // of a half-finished intent, and it reads as done: the list is right
+    // there in the UI, full of the correct domains, routing nothing.
+    for (const auto& [name, list] : lists) {
+        if (used.count(name) != 0) {
+            continue;
+        }
+        const std::size_t entries =
+            (list.domains ? list.domains->size() : 0) +
+            (list.ip_cidrs ? list.ip_cidrs->size() : 0);
+        // A list sourced from a URL or file carries the same intent even
+        // though it has no inline entries, so it is reported too. Only a list
+        // with no source at all is silently skipped — config validation
+        // already rejects that, so this is purely defensive.
+        const bool has_source =
+            entries > 0 ||
+            (list.url && !list.url->empty()) ||
+            (list.file && !list.file->empty());
+        if (!has_source) {
+            continue;
+        }
+        ListAdvisory advisory;
+        advisory.kind = ListAdvisory::Kind::UnusedList;
+        advisory.list = name;
+        advisory.entry_count = entries;
+        advisory.message =
+            entries > 0
+                ? keen_pbr3::format(
+                      "list '{}' holds {} entries but no enabled rule "
+                      "references it — it routes nothing",
+                      name, entries)
+                : keen_pbr3::format(
+                      "list '{}' is fetched from its source but no enabled "
+                      "rule references it — it routes nothing",
+                      name);
+        advisories.push_back(std::move(advisory));
     }
 
     std::sort(advisories.begin(), advisories.end(),

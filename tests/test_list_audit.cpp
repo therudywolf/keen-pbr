@@ -111,8 +111,9 @@ TEST_CASE("list_audit: threshold is configurable") {
     CHECK(audit_lists(cfg, /*threshold=*/100).size() == 1);
 }
 
-TEST_CASE("list_audit: unused lists are not audited") {
-    // An unreferenced list routes nothing, so it cannot misroute anything.
+TEST_CASE("list_audit: an unreferenced list's contents are not content-audited") {
+    // It routes nothing, so its broad range misroutes nothing. The only
+    // finding should be that the list is unused at all.
     const auto cfg = cfg_from(R"({
         "outbounds":[{"tag":"vpn","type":"ignore"}],
         "lists":{
@@ -121,16 +122,23 @@ TEST_CASE("list_audit: unused lists are not audited") {
         },
         "route":{"rules":[{"list":["used"],"outbound":"vpn"}]}
     })");
-    CHECK(audit_lists(cfg).empty());
+    const auto found = audit_lists(cfg);
+    CHECK(count_of(found, ListAdvisory::Kind::OversizedRange) == 0);
+    REQUIRE(count_of(found, ListAdvisory::Kind::UnusedList) == 1);
+    CHECK(found[0].list == "parked");
 }
 
 TEST_CASE("list_audit: disabled rules do not bring their lists into scope") {
+    // The list is out of scope for content checks, and separately reported as
+    // unused — a disabled rule routes nothing.
     const auto cfg = cfg_from(R"({
         "outbounds":[{"tag":"vpn","type":"ignore"}],
         "lists":{"big":{"ip_cidrs":["3.0.0.0/9"]}},
         "route":{"rules":[{"list":["big"],"outbound":"vpn","enabled":false}]}
     })");
-    CHECK(audit_lists(cfg).empty());
+    const auto found = audit_lists(cfg);
+    CHECK(count_of(found, ListAdvisory::Kind::OversizedRange) == 0);
+    CHECK(count_of(found, ListAdvisory::Kind::UnusedList) == 1);
 }
 
 TEST_CASE("list_audit: short IPv6 prefixes are flagged, /48 and longer are not") {
@@ -308,3 +316,57 @@ TEST_CASE("list_audit: empty config yields nothing") {
     })");
     CHECK(audit_lists(cfg).empty());
 }
+
+// --- unused lists ----------------------------------------------------------
+
+TEST_CASE("list_audit: flags the curated list nobody wired up") {
+    // The exact confusion this deployment hit: a carefully built google_disk
+    // list sitting in the config, read as "Drive is carved out", referenced by
+    // no rule and therefore routing nothing.
+    const auto cfg = cfg_from(R"({
+        "outbounds":[{"tag":"vpn","type":"ignore"}],
+        "lists":{
+            "vpn_stuff":{"domains":["example.com"]},
+            "google_disk":{"domains":["drive.google.com","googledrive.com"]}
+        },
+        "route":{"rules":[{"list":["vpn_stuff"],"outbound":"vpn"}]}
+    })");
+
+    const auto found = audit_lists(cfg);
+    REQUIRE(count_of(found, ListAdvisory::Kind::UnusedList) == 1);
+    const auto it = std::find_if(found.begin(), found.end(),
+                                 [](const ListAdvisory& a) {
+                                     return a.kind == ListAdvisory::Kind::UnusedList;
+                                 });
+    REQUIRE(it != found.end());
+    CHECK(it->list == "google_disk");
+    CHECK(it->entry_count == 2u);
+}
+
+TEST_CASE("list_audit: a list referenced only by a disabled rule counts as unused") {
+    const auto cfg = cfg_from(R"({
+        "outbounds":[{"tag":"vpn","type":"ignore"}],
+        "lists":{"parked":{"domains":["example.com"]}},
+        "route":{"rules":[{"list":["parked"],"outbound":"vpn","enabled":false}]}
+    })");
+    CHECK(count_of(audit_lists(cfg), ListAdvisory::Kind::UnusedList) == 1);
+}
+
+TEST_CASE("list_audit: an unused URL-sourced list is reported despite zero inline entries") {
+    // It still downloads on every refresh and still routes nothing, so the
+    // intent is just as unfinished as an inline list's would be.
+    const auto cfg = cfg_from(R"({
+        "outbounds":[{"tag":"vpn","type":"ignore"}],
+        "lists":{
+            "used":{"domains":["example.com"]},
+            "remote":{"url":"https://example.org/list.txt"}
+        },
+        "route":{"rules":[{"list":["used"],"outbound":"vpn"}]}
+    })");
+    const auto found = audit_lists(cfg);
+    REQUIRE(count_of(found, ListAdvisory::Kind::UnusedList) == 1);
+    CHECK(found[0].list == "remote");
+    CHECK(found[0].entry_count == 0u);
+}
+
+
