@@ -870,6 +870,32 @@ export const enTranslation = {
           title: "Lists",
           description:
             "Groups of domains and IP addresses you can use in your traffic rules.",
+          audit: {
+            title: "List advisories",
+            advisoryOnly: "advisory only — never blocks a save",
+            recheck: "Re-check",
+            addresses: "{{formatted}} addresses",
+            entries_one: "{{count}} entry, routing nothing",
+            entries_other: "{{count}} entries, routing nothing",
+            shadows: "also matches",
+            kind: {
+              shadowed_domain: {
+                title: "Shadowed domains",
+                description:
+                  "A broader entry in one list swallows a specific entry from another list that routes elsewhere. The broader one wins for every subdomain, so the specific list looks like it stopped working.",
+              },
+              oversized_range: {
+                title: "Over-broad IP ranges",
+                description:
+                  "A range wide enough to carry unrelated services with it. Traffic you never meant to route follows the list.",
+              },
+              unused_list: {
+                title: "Lists routing nothing",
+                description:
+                  "The list has content but no enabled rule references it. It reads as done while its traffic takes the default path.",
+              },
+            },
+          },
           actions: {
             new: "Add list",
             update: "Update",

@@ -33,6 +33,7 @@ import {
   DeleteImpactDialog,
   type DeleteImpactItem,
 } from "@/components/shared/delete-impact-dialog"
+import { ListAuditPanel } from "@/components/shared/list-audit-panel"
 import { ListPlaceholder } from "@/components/shared/list-placeholder"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatsDisplay } from "@/components/shared/stats-display"
@@ -359,6 +360,8 @@ export function ListsPage() {
       />
 
       <ConfigSaveErrorAlert error={postConfigMutation.error} />
+
+      <ListAuditPanel />
 
       {configQuery.isLoading ? (
         <TableSkeleton />
