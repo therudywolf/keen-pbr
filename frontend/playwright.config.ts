@@ -20,8 +20,9 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     cwd: dirname,
+    // vite preview serves dist/ as is, so keep the uncompressed assets.
     command:
-      "bun run build && bun run preview -- --host 127.0.0.1 --port 4173 --strictPort",
+      "KEEN_PBR_FRONTEND_KEEP_UNCOMPRESSED=1 bun run build && bun run preview -- --host 127.0.0.1 --port 4173 --strictPort",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     url: "http://127.0.0.1:4173/",

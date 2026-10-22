@@ -14,6 +14,12 @@ const isDemoMode = (mode: string) => mode === "demo"
 
 const routerUrl = process.env.ROUTER_URL || "http://192.168.54.1:12121"
 
+// The package ships only the pre-compressed .gz text assets; the daemon
+// inflates them for the rare client without gzip support. `vite preview`
+// (Playwright) cannot do that, so the e2e build keeps the originals.
+const keepUncompressedAssets =
+  process.env.KEEN_PBR_FRONTEND_KEEP_UNCOMPRESSED === "1"
+
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
@@ -24,7 +30,7 @@ export default defineConfig(({ mode }) => ({
       ext: ".gz",
       threshold: 0,
       filter: textAssetPattern,
-      deleteOriginFile: false,
+      deleteOriginFile: !keepUncompressedAssets,
       disable: mode === "development",
       compressionOptions: {
         level: constants.Z_BEST_COMPRESSION,

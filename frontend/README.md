@@ -14,11 +14,11 @@ React + Vite web UI for the keen-pbr daemon. Package manager: [Bun](https://bun.
 | `bun install` | Install dependencies |
 | `bun run dev` | Dev server; proxies `/api` to `ROUTER_URL` (default `http://192.168.54.1:12121`) |
 | `bun run dev:demo` | Dev server with in-memory mock API (no router required) |
-| `bun run build` | `tsc -b` + production bundle to `dist/` |
+| `bun run build` | `tsc -b` + production bundle to `dist/` (text assets only as `.gz`) |
 | `bun run lint` | ESLint |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun test ./tests` | Bun unit tests |
-| `bun run e2e` | Playwright (builds + `vite preview` on port 4173) |
+| `bun run e2e` | Playwright (builds with uncompressed assets + `vite preview` on port 4173) |
 | `bun run api:generate` | Regenerate Orval client under `src/api/generated/` |
 | `bun run api:check` | Regenerate and fail if generated files drift |
 

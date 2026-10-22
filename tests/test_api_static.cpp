@@ -11,6 +11,10 @@
 #include <unistd.h>
 #include <vector>
 
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+#include <zlib.h>
+#endif
+
 namespace keen_pbr3 {
 
 namespace {
@@ -34,6 +38,18 @@ void write_file(const std::filesystem::path& path, const std::string& content) {
     }
     file << content;
 }
+
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+void write_gzip_file(const std::filesystem::path& path, const std::string& content) {
+    gzFile file = gzopen(path.c_str(), "wb9");
+    if (!file) throw std::runtime_error("failed to create gzip file: " + path.string());
+    const int written = gzwrite(file, content.data(), static_cast<unsigned>(content.size()));
+    const int close_result = gzclose(file);
+    if (written != static_cast<int>(content.size()) || close_result != Z_OK) {
+        throw std::runtime_error("failed to write gzip file: " + path.string());
+    }
+}
+#endif
 
 } // namespace
 
@@ -90,7 +106,9 @@ TEST_CASE("static frontend gzip variant is skipped without gzip accept header") 
     REQUIRE(response != nullptr);
     CHECK(response->status == 200);
     CHECK(response->get_header_value_count("Content-Encoding") == 0);
-    CHECK(response->get_header_value_count("Vary") == 0);
+    // The URL has a gzip variant, so caches must key on Accept-Encoding.
+    CHECK(response->get_header_value("Vary") == "Accept-Encoding");
+    CHECK(response->get_header_value("Cache-Control") == "no-cache");
     CHECK(response->body == "<!doctype html><title>keen-pbr</title>");
 }
 
@@ -118,6 +136,97 @@ TEST_CASE("static frontend gzip variant respects explicit q zero") {
     CHECK(response->status == 200);
     CHECK(response->get_header_value_count("Content-Encoding") == 0);
     CHECK(response->body == "<!doctype html><title>keen-pbr</title>");
+}
+
+TEST_CASE("fingerprinted gzip-only assets are immutable and support ETag revalidation") {
+    const auto root = make_temp_static_root();
+    std::filesystem::create_directory(root / "assets");
+    write_file(root / "index.html.gz", "pretend-gzip-index");
+    write_file(root / "assets" / "index-abc123.js.gz", "pretend-gzip-js");
+
+    ApiConfig api_config;
+    api_config.listen = std::string("127.0.0.1:18201");
+
+    ApiServer server(api_config);
+    REQUIRE(server.register_static_root(root.string()));
+    server.start();
+
+    httplib::Client client("127.0.0.1", 18201);
+    client.set_decompress(false);
+    const httplib::Headers gzip_headers{{"Accept-Encoding", "gzip"}};
+    const auto asset = client.Get("/assets/index-abc123.js", gzip_headers);
+    REQUIRE(asset != nullptr);
+    const std::string etag = asset->get_header_value("ETag");
+    const httplib::Headers conditional_headers{
+        {"Accept-Encoding", "gzip"}, {"If-None-Match", etag}};
+    const auto revalidated = client.Get("/assets/index-abc123.js", conditional_headers);
+    const auto index = client.Get("/", gzip_headers);
+    const auto spa_route = client.Get("/routing-rules", gzip_headers);
+    server.stop();
+    std::filesystem::remove_all(root);
+
+    CHECK(asset->status == 200);
+    CHECK(asset->get_header_value("Content-Encoding") == "gzip");
+    CHECK(asset->get_header_value("Content-Type") == "application/javascript");
+    CHECK(asset->get_header_value("Cache-Control") == "public, max-age=31536000, immutable");
+    CHECK(asset->body == "pretend-gzip-js");
+    CHECK_FALSE(etag.empty());
+    REQUIRE(revalidated != nullptr);
+    CHECK(revalidated->status == 304);
+    CHECK(revalidated->body.empty());
+
+    REQUIRE(index != nullptr);
+    CHECK(index->status == 200);
+    CHECK(index->get_header_value("Cache-Control") == "no-cache");
+    CHECK(index->body == "pretend-gzip-index");
+    REQUIRE(spa_route != nullptr);
+    CHECK(spa_route->status == 200);
+    CHECK(spa_route->body == "pretend-gzip-index");
+}
+
+TEST_CASE("gzip-only assets reach clients without gzip support") {
+    const auto root = make_temp_static_root();
+    std::filesystem::create_directory(root / "assets");
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+    write_gzip_file(root / "index.html.gz", "<!doctype html><title>forest-pbr</title>");
+    write_gzip_file(root / "assets" / "app-1.css.gz", "body{color:#0f0}");
+#else
+    write_file(root / "index.html.gz", "pretend-gzip-index");
+    write_file(root / "assets" / "app-1.css.gz", "pretend-gzip-css");
+#endif
+
+    ApiConfig api_config;
+    api_config.listen = std::string("127.0.0.1:18202");
+
+    ApiServer server(api_config);
+    REQUIRE(server.register_static_root(root.string()));
+    server.start();
+
+    httplib::Client client("127.0.0.1", 18202);
+    client.set_decompress(false);
+    const httplib::Headers identity_headers{{"Accept-Encoding", "identity"}};
+    const auto index = client.Get("/", identity_headers);
+    const auto css = client.Get("/assets/app-1.css", identity_headers);
+    server.stop();
+    std::filesystem::remove_all(root);
+
+    REQUIRE(index != nullptr);
+    REQUIRE(css != nullptr);
+    CHECK(index->status == 200);
+    CHECK(css->status == 200);
+    CHECK(css->get_header_value("Content-Type") == "text/css");
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+    // Inflated by the daemon.
+    CHECK(index->get_header_value_count("Content-Encoding") == 0);
+    CHECK(index->body == "<!doctype html><title>forest-pbr</title>");
+    CHECK(css->get_header_value_count("Content-Encoding") == 0);
+    CHECK(css->body == "body{color:#0f0}");
+#else
+    // Built without zlib: the compressed bytes are sent, labelled as gzip.
+    CHECK(index->get_header_value("Content-Encoding") == "gzip");
+    CHECK(index->body == "pretend-gzip-index");
+    CHECK(css->get_header_value("Content-Encoding") == "gzip");
+#endif
 }
 
 TEST_CASE("API server limits use secure defaults and configured values") {

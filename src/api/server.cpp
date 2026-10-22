@@ -8,6 +8,7 @@
 #include "../util/traced_mutex.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -20,6 +21,13 @@
 #include <optional>
 #include <unordered_map>
 #include <nlohmann/json.hpp>
+
+// cpp-httplib exports CPPHTTPLIB_ZLIB_SUPPORT when it was built with zlib
+// (the Keenetic package links it); without it gzip-only assets are sent
+// compressed even to clients that did not ask for gzip.
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+#include <zlib.h>
+#endif
 
 namespace keen_pbr3 {
 
@@ -79,19 +87,90 @@ bool read_file(const std::filesystem::path& path, std::string& output) {
     return !file.bad();
 }
 
-bool serve_file_response(httplib::Response& res,
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+constexpr bool kCanInflateStaticFiles = true;
+
+// Inflates a pre-compressed asset for a client that does not accept gzip.
+bool read_gzip_file(const std::filesystem::path& path, std::string& output) {
+    constexpr std::size_t kMaxStaticFileSize = std::size_t{32} * 1024U * 1024U;
+    gzFile file = gzopen(path.c_str(), "rb");
+    if (!file) return false;
+
+    std::array<char, std::size_t{16} * 1024U> buffer{};
+    bool ok = true;
+    for (;;) {
+        const int count = gzread(file, buffer.data(), static_cast<unsigned>(buffer.size()));
+        if (count < 0) {
+            ok = false;
+            break;
+        }
+        if (count == 0) break;
+        if (output.size() + static_cast<std::size_t>(count) > kMaxStaticFileSize) {
+            ok = false;
+            break;
+        }
+        output.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+    if (gzclose(file) != Z_OK) ok = false;
+    if (!ok) output.clear();
+    return ok;
+}
+#else
+constexpr bool kCanInflateStaticFiles = false;
+#endif
+
+// Weak validator from size and mtime; the encoding is part of it because
+// the same URL is served either compressed or inflated.
+std::string static_file_etag(const std::filesystem::path& path, bool gzip_encoded) {
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec) return {};
+    const auto modified = std::filesystem::last_write_time(path, ec);
+    if (ec) return {};
+    return "W/\"" + std::to_string(size) + "-" +
+           std::to_string(static_cast<long long>(modified.time_since_epoch().count())) +
+           (gzip_encoded ? "-gzip\"" : "-identity\"");
+}
+
+// Serves `path` (the asset itself, or its ".gz" variant) for a request of
+// `mime_from_path`. Vite fingerprints everything under assets/, so those are
+// cacheable forever (`immutable`); index.html and friends are revalidated
+// with the ETag (304 when unchanged).
+bool serve_file_response(const httplib::Request& req,
+                         httplib::Response& res,
                          const std::filesystem::path& path,
                          const std::filesystem::path& mime_from_path,
-                         bool gzip_encoded) {
-    if (gzip_encoded) {
+                         bool gzip_encoded,
+                         bool immutable) {
+    const bool stored_gzip = path.extension() == ".gz";
+    const bool send_gzip = gzip_encoded || (stored_gzip && !kCanInflateStaticFiles);
+
+    res.set_header("Cache-Control", immutable
+        ? "public, max-age=31536000, immutable"
+        : "no-cache");
+    res.set_header("Vary", "Accept-Encoding");
+    const std::string etag = static_file_etag(path, send_gzip);
+    if (!etag.empty()) {
+        res.set_header("ETag", etag);
+        if (req.get_header_value("If-None-Match") == etag) {
+            res.status = 304;
+            return true;
+        }
+    }
+
+    if (send_gzip) {
         res.set_file_content(path.string(), get_mime_type_for_path(mime_from_path));
         res.set_header("Content-Encoding", "gzip");
-        res.set_header("Vary", "Accept-Encoding");
         return true;
     }
 
     std::string body;
-    if (!read_file(path, body)) {
+#ifdef CPPHTTPLIB_ZLIB_SUPPORT
+    const bool read_ok = stored_gzip ? read_gzip_file(path, body) : read_file(path, body);
+#else
+    const bool read_ok = read_file(path, body);
+#endif
+    if (!read_ok) {
         return false;
     }
     res.set_content(body, get_mime_type_for_path(mime_from_path));
@@ -535,7 +614,7 @@ bool ApiServer::register_static_root(const std::string& frontend_root) {
 
         const bool accepts_gzip = request_accepts_gzip(req);
 
-        auto serve_index = [&res, &root, accepts_gzip]() -> bool {
+        auto serve_index = [&req, &res, &root, accepts_gzip]() -> bool {
             const fs::path index_path = root / "index.html";
             auto index_gzip_path = index_path;
             index_gzip_path += ".gz";
@@ -543,12 +622,21 @@ bool ApiServer::register_static_root(const std::string& frontend_root) {
             fs::path resolved_index_gzip;
             if (accepts_gzip &&
                 resolve_static_file_under_root(root, index_gzip_path, resolved_index_gzip)) {
-                return serve_file_response(res, resolved_index_gzip, index_path, true);
+                return serve_file_response(req, res, resolved_index_gzip, index_path,
+                                           true, false);
             }
 
             fs::path resolved_index;
             if (resolve_static_file_under_root(root, index_path, resolved_index)) {
-                return serve_file_response(res, resolved_index, index_path, false);
+                return serve_file_response(req, res, resolved_index, index_path,
+                                           false, false);
+            }
+
+            // The package ships only index.html.gz.
+            if (!accepts_gzip &&
+                resolve_static_file_under_root(root, index_gzip_path, resolved_index_gzip)) {
+                return serve_file_response(req, res, resolved_index_gzip, index_path,
+                                           false, false);
             }
 
             return false;
@@ -566,6 +654,7 @@ bool ApiServer::register_static_root(const std::string& frontend_root) {
                                        ? fs::path("index.html")
                                        : fs::path(req.path).relative_path())
                                       .lexically_normal();
+        const bool immutable = relative.generic_string().rfind("assets/", 0) == 0;
 
         if (!is_safe_static_relative_path(relative)) {
             res.status = 400;
@@ -588,7 +677,7 @@ bool ApiServer::register_static_root(const std::string& frontend_root) {
 
         fs::path resolved_gzip;
         if (accepts_gzip && resolve_static_file_under_root(root, requested_gzip, resolved_gzip)) {
-            if (serve_file_response(res, resolved_gzip, requested, true)) {
+            if (serve_file_response(req, res, resolved_gzip, requested, true, immutable)) {
                 finish();
                 return;
             }
@@ -600,12 +689,27 @@ bool ApiServer::register_static_root(const std::string& frontend_root) {
 
         fs::path resolved_requested;
         if (resolve_static_file_under_root(root, requested, resolved_requested)) {
-            if (serve_file_response(res, resolved_requested, requested, false)) {
+            if (serve_file_response(req, res, resolved_requested, requested, false, immutable)) {
                 finish();
                 return;
             }
             res.status = 500;
             res.set_content(make_error_json("failed to read static file"), "application/json");
+            finish();
+            return;
+        }
+
+        // Only the pre-compressed variant is packaged: inflate it for a
+        // client without gzip support.
+        if (!accepts_gzip &&
+            resolve_static_file_under_root(root, requested_gzip, resolved_gzip)) {
+            if (serve_file_response(req, res, resolved_gzip, requested, false, immutable)) {
+                finish();
+                return;
+            }
+            res.status = 500;
+            res.set_content(make_error_json("failed to decompress static file"),
+                            "application/json");
             finish();
             return;
         }
