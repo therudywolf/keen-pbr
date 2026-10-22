@@ -218,6 +218,34 @@ TEST_CASE("IpsetRestoreVisitor: CIDR entry") {
   CHECK(v.count() == 1);
 }
 
+TEST_CASE("IpsetRestoreVisitor: IPv4 zero prefix expands for hash:net") {
+  std::ostringstream buf;
+  IpsetRestoreVisitor v(buf, "myset");
+  v.on_entry(EntryType::Cidr, "0.0.0.0/0");
+  CHECK(buf.str() == "add myset 0.0.0.0/1 -exist\n"
+                     "add myset 128.0.0.0/1 -exist\n");
+  CHECK(v.count() == 2);
+}
+
+TEST_CASE("IpsetRestoreVisitor: IPv6 zero prefix expands for hash:net") {
+  std::ostringstream buf;
+  IpsetRestoreVisitor v(buf, "myset");
+  v.on_entry(EntryType::Cidr, "::/0");
+  CHECK(buf.str() == "add myset ::/1 -exist\n"
+                     "add myset 8000::/1 -exist\n");
+  CHECK(v.count() == 2);
+}
+
+TEST_CASE("IpsetRestoreVisitor: a non-zero prefix ending in 0 is kept verbatim") {
+  std::ostringstream buf;
+  IpsetRestoreVisitor v(buf, "myset");
+  v.on_entry(EntryType::Cidr, "10.0.0.0/10");
+  v.on_entry(EntryType::Cidr, "2001:db8::/20");
+  CHECK(buf.str() == "add myset 10.0.0.0/10 -exist\n"
+                     "add myset 2001:db8::/20 -exist\n");
+  CHECK(v.count() == 2);
+}
+
 TEST_CASE("IpsetRestoreVisitor: Domain entry is ignored") {
   std::ostringstream buf;
   IpsetRestoreVisitor v(buf, "myset");
