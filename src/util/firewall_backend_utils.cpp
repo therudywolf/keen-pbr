@@ -1,5 +1,6 @@
 #include "firewall_backend_utils.hpp"
 
+#include "cached_probe.hpp"
 #include "safe_exec.hpp"
 
 namespace keen_pbr3 {
@@ -17,11 +18,29 @@ const char* firewall_backend_command(FirewallBackend backend) {
     throw FirewallError("Unexpected firewall backend value");
 }
 
+// `which` spawns a process and backend resolution runs on every firewall
+// refresh, so the answer is cached per backend (see CachedProbe).
+CachedProbe& firewall_backend_probe_cache(FirewallBackend backend) {
+    static CachedProbe iptables_cache;
+    static CachedProbe nftables_cache;
+    return backend == FirewallBackend::nftables ? nftables_cache : iptables_cache;
+}
+
 } // namespace
 
 bool firewall_backend_command_exists(FirewallBackend backend) {
-    return safe_exec({"which", firewall_backend_command(backend)}, /*suppress_output=*/true) == 0;
+    const char* command = firewall_backend_command(backend);
+    return firewall_backend_probe_cache(backend).get([command] {
+        return safe_exec({"which", command}, /*suppress_output=*/true) == 0;
+    });
 }
+
+#ifdef KEEN_PBR3_TESTING
+void reset_firewall_backend_probe_cache_for_tests() {
+    firewall_backend_probe_cache(FirewallBackend::iptables).reset();
+    firewall_backend_probe_cache(FirewallBackend::nftables).reset();
+}
+#endif
 
 FirewallBackend detect_firewall_backend() {
     if (firewall_backend_command_exists(FirewallBackend::nftables)) {
