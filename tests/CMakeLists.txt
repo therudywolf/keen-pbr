@@ -34,6 +34,7 @@ add_executable(keen-pbr-tests
   test_system_resolver_hook.cpp
   test_system_info.cpp
   test_safe_exec.cpp
+  test_log_escape.cpp
   test_ipv6_support.cpp
   test_trace_logging.cpp
   test_log_file_sink.cpp

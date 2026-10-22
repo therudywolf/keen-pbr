@@ -2,8 +2,14 @@
 
 #include "../src/dns/dns_probe_server.hpp"
 #include "../src/dns/dns_server.hpp"
+#include "../src/log/logger.hpp"
 
+#include <arpa/inet.h>
 #include <array>
+#include <netinet/in.h>
+#include <string>
+#include <sys/socket.h>
+#include <unistd.h>
 
 using namespace keen_pbr3;
 
@@ -116,4 +122,46 @@ TEST_CASE("dns probe response returns synthetic A record") {
 TEST_CASE("dns probe query rejects malformed packets") {
     std::vector<uint8_t> packet = {0x12, 0x34, 0x01, 0x00};
     CHECK_THROWS_AS(parse_dns_probe_query(ByteView(packet.data(), packet.size())), DnsError);
+}
+
+TEST_CASE("dns probe server escapes traffic-derived names in its log line") {
+    const auto settings = parse_dns_probe_server_settings("127.0.0.1:18253", nullptr);
+    std::vector<DnsProbeEvent> events;
+    DnsProbeServer server(settings, [&events](const DnsProbeEvent& event) {
+        events.push_back(event);
+    });
+
+    auto& logger = Logger::instance();
+    const LogLevel previous_level = logger.level();
+    std::string log;
+    logger.set_level(LogLevel::info);
+    logger.set_sink([&log](const std::string& line) {
+        log += line;
+        log.push_back('\n');
+    });
+
+    // Label "a\nb": a newline inside a DNS label would otherwise split the
+    // log line and let the sender forge a second one.
+    const auto query = make_query(0x4242, 0x0100, std::string("a\nb"), 1);
+    const int client = socket(AF_INET, SOCK_DGRAM, 0);
+    REQUIRE(client >= 0);
+    sockaddr_in addr {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(18253);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    REQUIRE(sendto(client, query.data(), query.size(), 0,
+                   reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) ==
+            static_cast<ssize_t>(query.size()));
+    for (int attempt = 0; attempt < 100 && events.empty(); ++attempt) {
+        server.handle_udp_readable();
+        if (events.empty()) usleep(10000);
+    }
+    close(client);
+    logger.clear_sink();
+    logger.set_level(previous_level);
+
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].domain == "a\nb.com");
+    CHECK(log.find("DNS test query: a\\x0ab.com source=127.0.0.1") != std::string::npos);
+    CHECK(log.find("a\nb.com") == std::string::npos);
 }

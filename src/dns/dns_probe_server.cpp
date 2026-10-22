@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "../log/logger.hpp"
+#include "../util/log_escape.hpp"
 #include "dns_server.hpp"
 
 namespace keen_pbr3 {
@@ -662,12 +663,13 @@ void DnsProbeServer::remove_tcp_client(int fd) {
 
 void DnsProbeServer::publish_query(const DnsProbeQuestion& question,
                                    const std::string& source_ip) const {
+    // The name comes straight from the packet: its labels may hold any byte.
     if (question.ecs.has_value()) {
         Logger::instance().info("DNS test query: {} source={} ecs={}",
-                                question.name, source_ip, *question.ecs);
+                                log_escape(question.name), source_ip, *question.ecs);
     } else {
         Logger::instance().info("DNS test query: {} source={}",
-                                question.name, source_ip);
+                                log_escape(question.name), source_ip);
     }
     if (on_query_) {
         on_query_(DnsProbeEvent{
