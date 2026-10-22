@@ -624,13 +624,19 @@ void Daemon::run() {
         log.info("Static routing tables and ip rules installed.");
 
         log.info("Loading lists...");
-        list_service_.download_uncached(config_, outbound_marks_);
+        const auto startup_lists = list_service_.download_uncached(config_, outbound_marks_);
 
         register_urltest_outbounds();
         apply_firewall(FirewallApplyMode::Destructive);
         log.info("Firewall rules and routing applied.");
 
         schedule_lists_autoupdate();
+        // A list that could not be fetched yet (WAN still down at boot) is
+        // retried in the background instead of waiting for the next cron run.
+        if (startup_lists.any_failed()) {
+            startup_list_retry_attempt_ = 0;
+            schedule_startup_list_retry();
+        }
         // Bypasses dnsmasq's cache to refresh dynamic ipset entries even when
         // clients never touch dnsmasq (DoH/DoT) or cache-hit answers. See
         // ListWarmer for the full rationale.

@@ -4,6 +4,7 @@
 #include "../config/config.hpp"
 #include "../util/traced_mutex.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <exception>
 #include <map>
@@ -63,6 +64,11 @@ std::set<std::string> collect_relevant_list_names(const Config& config);
 bool should_reload_runtime_after_list_refresh(
     bool routing_runtime_active,
     const RemoteListsRefreshResult& refresh_result);
+
+// Delay before the next background retry of lists whose startup download
+// failed: 10 s, 30 s, 2 min, then every 5 min. `attempt` counts the retries
+// already made.
+std::chrono::seconds startup_list_retry_delay(unsigned attempt);
 
 std::map<std::string, api::ListRefreshStateValue> build_list_refresh_state_map(
     const Config& config,

@@ -74,6 +74,7 @@ void Daemon::stop_routing_runtime() {
     }
 
     runtime_generation_.fetch_add(1, std::memory_order_acq_rel);
+    cancel_startup_list_retry();
 
     if (urltest_manager_) {
         urltest_manager_->clear();
@@ -259,6 +260,12 @@ void Daemon::register_urltest_outbounds() {
 }
 
 void Daemon::schedule_lists_autoupdate() {
+    // Idempotent: never leave an earlier timer behind when rescheduling
+    // (the stale-generation commit path and apply_config both land here).
+    if (lists_autoupdate_task_id_ >= 0) {
+        scheduler_->cancel(lists_autoupdate_task_id_);
+        lists_autoupdate_task_id_ = -1;
+    }
     if (!config_.lists_autoupdate) return;
     if (!config_.lists_autoupdate->enabled.value_or(false)) return;
     const auto& expr = config_.lists_autoupdate->cron.value_or("");
@@ -409,35 +416,40 @@ void Daemon::schedule_autoheal_worker() {
         interval_seconds, watchlist.size());
 }
 
+bool Daemon::apply_list_refresh_result(const Config& config_snapshot,
+                                       const RemoteListsRefreshResult& refresh_result,
+                                       bool runtime_active) {
+    auto& log = Logger::instance();
+    if (should_reload_runtime_after_list_refresh(runtime_active, refresh_result)) {
+        log.info("Lists refresh: relevant list(s) changed ({}), reloading runtime",
+                 format_list_names(refresh_result.relevant_changed_lists));
+        apply_config(config_snapshot, false);
+        return true;
+    }
+
+    if (refresh_result.any_relevant_changed()) {
+        log.info("Lists refresh: relevant list(s) changed ({}), but runtime is stopped",
+                 format_list_names(refresh_result.relevant_changed_lists));
+    } else if (refresh_result.any_changed()) {
+        log.info("Lists refresh: updated list(s) did not affect runtime config: {}",
+                 format_list_names(refresh_result.changed_lists));
+    } else if (refresh_result.any_failed()) {
+        log.warn("Lists refresh: failed to refresh list(s): {}",
+                 format_list_names(refresh_result.failed_lists));
+    } else {
+        log.info("Lists refresh: no list updates");
+    }
+    return false;
+}
+
 ListsRefreshExecutionResult Daemon::execute_remote_list_refresh(
     const std::set<std::string>* target_lists) {
-    auto& log = Logger::instance();
     ListsRefreshExecutionResult result;
     const auto relevant_lists = collect_relevant_list_names(config_);
     result.refresh_result =
         list_service_.refresh_remote_lists(config_, outbound_marks_, &relevant_lists, target_lists);
-
-    if (should_reload_runtime_after_list_refresh(routing_runtime_active_, result.refresh_result)) {
-        log.info("Lists refresh: relevant list(s) changed ({}), reloading runtime",
-                 format_list_names(result.refresh_result.relevant_changed_lists));
-        apply_config(config_, false);
-        result.reloaded = true;
-        return result;
-    }
-
-    if (result.refresh_result.any_relevant_changed()) {
-        log.info("Lists refresh: relevant list(s) changed ({}), but runtime is stopped",
-                 format_list_names(result.refresh_result.relevant_changed_lists));
-    } else if (result.refresh_result.any_changed()) {
-        log.info("Lists refresh: updated list(s) did not affect runtime config: {}",
-                 format_list_names(result.refresh_result.changed_lists));
-    } else if (result.refresh_result.any_failed()) {
-        log.warn("Lists refresh: failed to refresh list(s): {}",
-                 format_list_names(result.refresh_result.failed_lists));
-    } else {
-        log.info("Lists refresh: no list updates");
-    }
-
+    result.reloaded =
+        apply_list_refresh_result(config_, result.refresh_result, routing_runtime_active_);
     return result;
 }
 
@@ -446,14 +458,13 @@ void Daemon::refresh_lists_and_maybe_reload() {
     log.info("Lists autoupdate: checking for updated lists");
 
     try {
-        const auto result = execute_remote_list_refresh();
-        if (!result.reloaded) {
-            schedule_lists_autoupdate();
-        }
+        (void)execute_remote_list_refresh();
     } catch (const std::exception& e) {
         log.error("Lists autoupdate failed: {}", e.what());
-        schedule_lists_autoupdate();
     }
+    // The timer is a one-shot that has already fired; scheduling is
+    // idempotent, so a reload that rescheduled it already is harmless.
+    schedule_lists_autoupdate();
 }
 
 void Daemon::commit_lists_refresh_async_result(
@@ -482,46 +493,22 @@ void Daemon::commit_lists_refresh_async_result(
                 return;
             }
 
-            if (!error.empty()) {
+            if (!error.empty() || !refresh_result.has_value()) {
                 Logger::instance().error("Lists autoupdate failed: {}", error);
                 schedule_lists_autoupdate();
                 return;
             }
 
-            ListsRefreshExecutionResult result;
-            result.refresh_result = std::move(*refresh_result);
-
-            if (should_reload_runtime_after_list_refresh(runtime_active_snapshot,
-                                                        result.refresh_result)) {
-                Logger::instance().info(
-                    "Lists refresh: relevant list(s) changed ({}), reloading runtime",
-                    format_list_names(result.refresh_result.relevant_changed_lists));
-                try {
-                    apply_config(config_snapshot, false);
-                    result.reloaded = true;
-                } catch (const std::exception& e) {
-                    Logger::instance().error("Lists autoupdate reload failed: {}", e.what());
-                    schedule_lists_autoupdate();
-                    return;
-                }
-            } else if (result.refresh_result.any_relevant_changed()) {
-                Logger::instance().info(
-                    "Lists refresh: relevant list(s) changed ({}), but runtime is stopped",
-                    format_list_names(result.refresh_result.relevant_changed_lists));
-            } else if (result.refresh_result.any_changed()) {
-                Logger::instance().info(
-                    "Lists refresh: updated list(s) did not affect runtime config: {}",
-                    format_list_names(result.refresh_result.changed_lists));
-            } else if (result.refresh_result.any_failed()) {
-                Logger::instance().warn("Lists refresh: failed to refresh list(s): {}",
-                                        format_list_names(result.refresh_result.failed_lists));
-            } else {
-                Logger::instance().info("Lists refresh: no list updates");
+            try {
+                (void)apply_list_refresh_result(config_snapshot,
+                                                *refresh_result,
+                                                runtime_active_snapshot);
+            } catch (const std::exception& e) {
+                Logger::instance().error("Lists autoupdate reload failed: {}", e.what());
             }
-
-            if (!result.reloaded) {
-                schedule_lists_autoupdate();
-            }
+            // Always (re)schedule: the one-shot timer has fired, and a
+            // reload that already rescheduled it is a no-op here.
+            schedule_lists_autoupdate();
         },
         "lists-refresh-commit");
 }
@@ -587,6 +574,125 @@ void Daemon::refresh_lists_and_maybe_reload_async() {
     }
 }
 
+void Daemon::cancel_startup_list_retry() {
+    if (startup_list_retry_task_id_ >= 0) {
+        scheduler_->cancel(startup_list_retry_task_id_);
+        startup_list_retry_task_id_ = -1;
+    }
+}
+
+void Daemon::schedule_startup_list_retry() {
+    cancel_startup_list_retry();
+    const auto delay = startup_list_retry_delay(startup_list_retry_attempt_);
+    startup_list_retry_task_id_ = scheduler_->schedule_oneshot(
+        delay,
+        [this]() {
+            startup_list_retry_task_id_ = -1;
+            run_startup_list_retry();
+        },
+        "startup-list-retry");
+    Logger::instance().info("Startup lists: retrying failed download(s) in {}s (attempt {})",
+                            delay.count(),
+                            startup_list_retry_attempt_ + 1);
+}
+
+void Daemon::run_startup_list_retry() {
+    if (!routing_runtime_active_) {
+        return;
+    }
+
+    bool expected = false;
+    if (!remote_list_refresh_inflight_.compare_exchange_strong(expected,
+                                                               true,
+                                                               std::memory_order_acq_rel)) {
+        Logger::instance().trace("lists_refresh_skip",
+                                 "source=startup-retry reason=inflight");
+        schedule_startup_list_retry();
+        return;
+    }
+
+    const Config config_snapshot = config_;
+    const OutboundMarkMap marks_snapshot = outbound_marks_;
+    const auto relevant_lists = collect_relevant_list_names(config_snapshot);
+    const auto generation = runtime_generation_.load(std::memory_order_acquire);
+    const TraceId trace_id = ensure_trace_id();
+
+    const bool enqueued = blocking_executor_.try_post(
+        "startup-list-retry",
+        [this, config_snapshot, marks_snapshot, relevant_lists, generation, trace_id]() mutable {
+            ScopedTraceContext trace_scope(trace_id);
+            std::optional<RemoteListsRefreshResult> refresh_result;
+            std::string error;
+            try {
+                // Cached lists are skipped, so only the failed ones are retried.
+                refresh_result = list_service_.download_uncached(
+                    config_snapshot, marks_snapshot, &relevant_lists);
+            } catch (const std::exception& e) {
+                error = e.what();
+            } catch (...) {
+                error = "unknown list download error";
+            }
+            commit_startup_list_retry_result(
+                generation, std::move(refresh_result), std::move(error), trace_id);
+        },
+        trace_id);
+
+    if (!enqueued) {
+        remote_list_refresh_inflight_.store(false, std::memory_order_release);
+        Logger::instance().trace("lists_refresh_skip",
+                                 "source=startup-retry reason=executor_unavailable");
+        schedule_startup_list_retry();
+    }
+}
+
+void Daemon::commit_startup_list_retry_result(
+    std::uint64_t generation,
+    std::optional<RemoteListsRefreshResult> refresh_result,
+    std::string error,
+    TraceId trace_id) {
+    post_control_task(
+        [this,
+         generation,
+         refresh_result = std::move(refresh_result),
+         error = std::move(error),
+         trace_id]() mutable {
+            ScopedTraceContext trace_scope_inner(trace_id);
+            remote_list_refresh_inflight_.store(false, std::memory_order_release);
+
+            // A config apply or a runtime stop superseded this retry chain.
+            if (generation != runtime_generation_.load(std::memory_order_acquire)) {
+                Logger::instance().trace("lists_refresh_skip",
+                                         "source=startup-retry generation={} reason=stale_runtime",
+                                         generation);
+                return;
+            }
+
+            bool failures_remain = true;
+            if (!error.empty() || !refresh_result.has_value()) {
+                Logger::instance().error("Startup lists retry failed: {}", error);
+            } else {
+                failures_remain = refresh_result->any_failed();
+                try {
+                    (void)apply_list_refresh_result(config_, *refresh_result,
+                                                    routing_runtime_active_);
+                } catch (const std::exception& e) {
+                    Logger::instance().error("Startup lists retry reload failed: {}", e.what());
+                }
+            }
+
+            // The retry timer is a one-shot that has already fired: schedule
+            // the next attempt here while failures remain.
+            if (failures_remain) {
+                ++startup_list_retry_attempt_;
+                schedule_startup_list_retry();
+            } else {
+                startup_list_retry_attempt_ = 0;
+                Logger::instance().info("Startup lists: all remote lists are now available.");
+            }
+        },
+        "startup-list-retry-commit");
+}
+
 PreparedRuntimeInputs Daemon::prepare_runtime_inputs(const Config& config,
                                                      bool refresh_remote_lists) {
     TraceSpan span("prepare-runtime-inputs");
@@ -617,6 +723,7 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
         scheduler_->cancel(lists_autoupdate_task_id_);
         lists_autoupdate_task_id_ = -1;
     }
+    cancel_startup_list_retry();
     if (keenetic_dns_refresh_task_id_ >= 0) {
         scheduler_->cancel(keenetic_dns_refresh_task_id_);
         keenetic_dns_refresh_task_id_ = -1;

@@ -200,8 +200,24 @@ private:
     void apply_autoheal_promoted_config(Config promoted);
     ListsRefreshExecutionResult execute_remote_list_refresh(
         const std::set<std::string>* target_lists = nullptr);
+    // Apply a finished list refresh on the control thread: log the outcome
+    // and reload the runtime when a route/DNS-relevant list changed. Returns
+    // true when the runtime was reloaded; throws if that reload fails.
+    bool apply_list_refresh_result(const Config& config_snapshot,
+                                   const RemoteListsRefreshResult& refresh_result,
+                                   bool runtime_active);
     void refresh_lists_and_maybe_reload();
     void refresh_lists_and_maybe_reload_async();
+    // Background retry of URL-backed lists whose startup download failed
+    // (10 s, 30 s, 2 min, then every 5 min). Cancelled by a config apply and
+    // by a runtime stop; a result from an older runtime generation is dropped.
+    void schedule_startup_list_retry();
+    void cancel_startup_list_retry();
+    void run_startup_list_retry();
+    void commit_startup_list_retry_result(std::uint64_t generation,
+                                          std::optional<RemoteListsRefreshResult> refresh_result,
+                                          std::string error,
+                                          TraceId trace_id);
     void commit_lists_refresh_async_result(Config config_snapshot,
                                            bool runtime_active_snapshot,
                                            std::uint64_t generation,
@@ -274,6 +290,9 @@ private:
 
     // Lists autoupdate state
     int lists_autoupdate_task_id_{-1};
+    // One-shot retry timer for lists that failed to download at startup.
+    int startup_list_retry_task_id_{-1};
+    unsigned startup_list_retry_attempt_{0};
     // Periodic refresh task for cached Keenetic DNS server values.
     int keenetic_dns_refresh_task_id_{-1};
     // Periodic refresh task for the actual resolver config hash / live status.

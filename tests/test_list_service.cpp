@@ -573,6 +573,15 @@ TEST_CASE("CacheManager::download: flushed update replaces the cache and leaves 
     std::filesystem::remove_all(temp_dir);
 }
 
+TEST_CASE("startup_list_retry_delay: backoff sequence is capped at five minutes") {
+    CHECK(startup_list_retry_delay(0) == std::chrono::seconds{10});
+    CHECK(startup_list_retry_delay(1) == std::chrono::seconds{30});
+    CHECK(startup_list_retry_delay(2) == std::chrono::seconds{120});
+    CHECK(startup_list_retry_delay(3) == std::chrono::seconds{300});
+    CHECK(startup_list_retry_delay(4) == std::chrono::seconds{300});
+    CHECK(startup_list_retry_delay(1000000U) == std::chrono::seconds{300});
+}
+
 TEST_CASE("collect_relevant_list_names: ignores disabled route and dns rules") {
     Config config;
 
