@@ -5,7 +5,10 @@ set -eu
 WORKSPACE="${1:?Usage: $0 <workspace-dir> [dist-dir]}"
 DIST_DIR="${2:-$WORKSPACE/frontend/dist}"
 
-MARKER="$DIST_DIR/index.html"
+# The production bundle ships only pre-compressed files (index.html.gz); a
+# development or test build keeps index.html.
+MARKER="$DIST_DIR/index.html.gz"
+[ -f "$MARKER" ] || MARKER="$DIST_DIR/index.html"
 
 # Rebuild when the dist is missing/empty.
 if [ ! -d "$DIST_DIR" ] || [ ! -f "$MARKER" ]; then

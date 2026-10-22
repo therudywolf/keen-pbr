@@ -520,15 +520,16 @@ void Daemon::schedule_list_warmer() {
 }
 
 void Daemon::apply_autoheal_promoted_config(Config promoted) {
-    // Reuse the EXACT mechanism POST /api/config/save uses on the daemon side:
-    //   (1) serialize to the canonical on-disk form,
-    //   (2) atomically write config.json (so a reboot keeps the promotion),
-    //   (3) apply_config -> firewall/dnsmasq reapply on this (event-loop) thread.
+    // Same order as POST /api/config/save: apply first, persist only once the
+    // runtime runs the promoted config. A promotion that fails to apply is
+    // rolled back to the previous config and never becomes the one loaded on
+    // the next boot; the error propagates to the scheduler, which logs it.
     // apply_config also refreshes the config_store active snapshot, so the API
-    // /api/config view reflects the promotion. No new apply path is introduced.
+    // /api/config view reflects the promotion.
     const std::string serialized = serialize_config_pretty(promoted);
+    bool rolled_back = false;
+    apply_config_with_rollback(promoted, rolled_back);
     write_config_atomically(config_path_, serialized);
-    apply_config(std::move(promoted));
 }
 
 void Daemon::schedule_autoheal_worker() {
@@ -980,6 +981,9 @@ void Daemon::apply_config(Config config, bool refresh_remote_lists) {
     }
 
     apply_prepared_runtime_inputs(prepare_runtime_inputs(config, refresh_remote_lists));
+    // Helper processes started from now on use the applied config's deadlines
+    // (SIGHUP reloads and auto-heal promotions come through here).
+    apply_exec_timeouts(config_);
 }
 
 void Daemon::apply_config_with_rollback(const Config& next_config, bool& rolled_back) {
