@@ -23,6 +23,24 @@ struct WriteContext {
     size_t max_size;
 };
 
+// Lists and the Keenetic RCI probe are plain web sources. Without this,
+// libcurl would also fetch file:// or ftp:// URLs and follow redirects to
+// them.
+static void restrict_protocols(CURL* curl) {
+#if LIBCURL_VERSION_NUM >= 0x075500
+    const CURLcode initial = curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
+    const CURLcode redirects = curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+    const CURLcode initial = curl_easy_setopt(
+        curl, CURLOPT_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+    const CURLcode redirects = curl_easy_setopt(
+        curl, CURLOPT_REDIR_PROTOCOLS, static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
+    if (initial != CURLE_OK || redirects != CURLE_OK) {
+        throw HttpError("Failed to restrict HTTP protocols");
+    }
+}
+
 static size_t write_callback(char* ptr, size_t size, size_t nmemb,
                              void* userdata) {
     if (nmemb != 0 && size > SIZE_MAX / nmemb) return 0;
@@ -55,12 +73,24 @@ static std::string trim_header_value(const std::string& s) {
     return s.substr(start, end - start);
 }
 
-static size_t header_callback(char* buffer, size_t size, size_t nitems,
-                              void* userdata) {
-    if (nitems != 0 && size > SIZE_MAX / nitems) return 0;
-    size_t total = size * nitems;
-    auto* capture = static_cast<HeaderCapture*>(userdata);
-    std::string header(buffer, total);
+void detail::capture_response_header_line(std::string_view header_view,
+                                          std::string& etag,
+                                          std::string& last_modified) {
+    const std::string header(header_view);
+    // With FOLLOWLOCATION libcurl reports the headers of every response in
+    // the redirect chain. A status line starts the next response: drop the
+    // validators of the previous one, so a 30x ETag is never sent back as
+    // If-None-Match for the final URL (a false 304 would freeze the list).
+    if (header.size() >= 5 &&
+        std::tolower(static_cast<unsigned char>(header[0])) == 'h' &&
+        std::tolower(static_cast<unsigned char>(header[1])) == 't' &&
+        std::tolower(static_cast<unsigned char>(header[2])) == 't' &&
+        std::tolower(static_cast<unsigned char>(header[3])) == 'p' &&
+        header[4] == '/') {
+        etag.clear();
+        last_modified.clear();
+        return;
+    }
 
     // Case-insensitive prefix check
     auto starts_with_ci = [&](const std::string& prefix) {
@@ -74,11 +104,20 @@ static size_t header_callback(char* buffer, size_t size, size_t nitems,
     };
 
     if (starts_with_ci("etag:")) {
-        capture->etag = trim_header_value(header.substr(5));
+        etag = trim_header_value(header.substr(5));
     } else if (starts_with_ci("last-modified:")) {
-        capture->last_modified = trim_header_value(header.substr(14));
+        last_modified = trim_header_value(header.substr(14));
     }
+}
 
+static size_t header_callback(char* buffer, size_t size, size_t nitems,
+                              void* userdata) {
+    if (nitems != 0 && size > SIZE_MAX / nitems) return 0;
+    size_t total = size * nitems;
+    auto* capture = static_cast<HeaderCapture*>(userdata);
+    detail::capture_response_header_line(std::string_view(buffer, total),
+                                         capture->etag,
+                                         capture->last_modified);
     return total;
 }
 
@@ -131,6 +170,12 @@ std::string HttpClient::download(const std::string& url,
     uint32_t fwmark = options.fwmark;
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    try {
+        restrict_protocols(curl);
+    } catch (...) {
+        curl_easy_cleanup(curl);
+        throw;
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_ctx);
     // See the note in url_tester.cpp: without NOSIGNAL, a libcurl built
@@ -214,6 +259,12 @@ ConditionalDownloadResult HttpClient::download_conditional(
     uint32_t fwmark = options.fwmark;
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    try {
+        restrict_protocols(curl);
+    } catch (...) {
+        curl_easy_cleanup(curl);
+        throw;
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_ctx);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
