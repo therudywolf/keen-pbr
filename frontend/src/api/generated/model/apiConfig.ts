@@ -5,9 +5,32 @@
  * REST API for the keen-pbr policy-based routing daemon.
  * OpenAPI spec version: 3.0.0
  */
+import type { CorsConfig } from './corsConfig';
 
 export interface ApiConfig {
   enabled?: boolean;
   /** Address and port for the HTTP API. */
   listen?: string;
+  /**
+     * Maximum HTTP request body size in bytes; larger requests get 413. Defaults to 1 MiB when omitted or null.
+
+     * @minimum 1024
+     */
+  max_request_body_bytes?: number | null;
+  /**
+     * Maximum time spent reading an HTTP request. Defaults to 15.
+     * @minimum 1
+     */
+  read_timeout_seconds?: number | null;
+  /**
+     * Maximum time spent writing an HTTP response. Defaults to 15.
+     * @minimum 1
+     */
+  write_timeout_seconds?: number | null;
+  /**
+     * Idle timeout for an HTTP keep-alive connection. Defaults to 20.
+     * @minimum 1
+     */
+  keep_alive_timeout_seconds?: number | null;
+  cors?: CorsConfig;
 }

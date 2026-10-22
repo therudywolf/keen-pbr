@@ -628,6 +628,14 @@ Config parse_config(const std::string& json_str) {
         parsed_json, "daemon", "exec_timeout_seconds", "daemon.exec_timeout_seconds", issues);
     validate_optional_integer_field(
         parsed_json, "daemon", "exec_kill_grace_seconds", "daemon.exec_kill_grace_seconds", issues);
+    validate_optional_integer_field(
+        parsed_json, "api", "max_request_body_bytes", "api.max_request_body_bytes", issues);
+    validate_optional_integer_field(
+        parsed_json, "api", "read_timeout_seconds", "api.read_timeout_seconds", issues);
+    validate_optional_integer_field(
+        parsed_json, "api", "write_timeout_seconds", "api.write_timeout_seconds", issues);
+    validate_optional_integer_field(
+        parsed_json, "api", "keep_alive_timeout_seconds", "api.keep_alive_timeout_seconds", issues);
     validate_optional_string_field(
         parsed_json, "daemon", "firewall_backend", "daemon.firewall_backend", issues);
     validate_optional_boolean_field(
@@ -698,6 +706,48 @@ void validate_config(const Config& cfg) {
         if (exec_kill_grace_seconds < 0 || exec_kill_grace_seconds > 3600) {
             add_issue(issues, "daemon.exec_kill_grace_seconds",
                       "daemon.exec_kill_grace_seconds must be between 0 and 3600");
+        }
+    }
+
+    if (cfg.api) {
+        if (cfg.api->max_request_body_bytes.value_or(1024 * 1024) < 1024) {
+            add_issue(issues, "api.max_request_body_bytes",
+                      "api.max_request_body_bytes must be >= 1024");
+        }
+        const auto validate_timeout = [&issues](const std::optional<int64_t>& value,
+                                                int64_t fallback,
+                                                const std::string& path) {
+            const int64_t seconds = value.value_or(fallback);
+            if (seconds < 1 || seconds > std::numeric_limits<int>::max()) {
+                add_issue(issues, path, path + " must be between 1 and " +
+                                            std::to_string(std::numeric_limits<int>::max()));
+            }
+        };
+        validate_timeout(cfg.api->read_timeout_seconds, 15, "api.read_timeout_seconds");
+        validate_timeout(cfg.api->write_timeout_seconds, 15, "api.write_timeout_seconds");
+        validate_timeout(cfg.api->keep_alive_timeout_seconds, 20, "api.keep_alive_timeout_seconds");
+
+        const auto allowed_origins = cfg.api->cors.has_value()
+            ? cfg.api->cors->allowed_origins.value_or(std::vector<std::string>{})
+            : std::vector<std::string>{};
+        for (std::size_t index = 0; index < allowed_origins.size(); ++index) {
+            // An Origin header is "scheme://host[:port]": anything with a
+            // path, a trailing slash or whitespace would never match.
+            const std::string& origin = allowed_origins[index];
+            const auto separator = origin.find("://");
+            const bool web_scheme = origin.rfind("http://", 0) == 0 ||
+                                    origin.rfind("https://", 0) == 0;
+            const bool has_host = separator != std::string::npos && separator + 3 < origin.size();
+            const bool clean = std::none_of(origin.begin(), origin.end(), [](unsigned char ch) {
+                return std::isspace(ch) != 0 || std::iscntrl(ch) != 0;
+            });
+            const bool no_path = has_host && origin.find('/', separator + 3) == std::string::npos;
+            if (!web_scheme || !has_host || !clean || !no_path) {
+                const std::string path = "api.cors.allowed_origins[" + std::to_string(index) + "]";
+                add_issue(issues, path,
+                          path + " must be an origin such as \"https://router.example.org\" "
+                                 "(http or https, host and optional port, no path)");
+            }
         }
     }
 

@@ -12,6 +12,8 @@ const textAssetPattern = /\.(html?|css|js|mjs|cjs|jsx|ts|tsx|json|svg|txt|xml|wa
 // https://vite.dev/config/
 const isDemoMode = (mode: string) => mode === "demo"
 
+const routerUrl = process.env.ROUTER_URL || "http://192.168.54.1:12121"
+
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
@@ -76,8 +78,19 @@ export default defineConfig(({ mode }) => ({
     : {
         proxy: {
           "/api": {
-            target: process.env.ROUTER_URL || "http://192.168.54.1:12121",
+            target: routerUrl,
             changeOrigin: true,
+            // The daemon refuses requests whose Origin is not its own (CSRF
+            // guard). Present the dev UI's own requests as same-origin; any
+            // other page's Origin is passed on unchanged and still refused.
+            configure: (proxy) => {
+              proxy.on("proxyReq", (proxyReq, req) => {
+                const origin = req.headers.origin
+                if (origin && origin === `http://${req.headers.host}`) {
+                  proxyReq.setHeader("origin", new URL(routerUrl).origin)
+                }
+              })
+            },
           },
         },
       },

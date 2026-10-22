@@ -90,9 +90,18 @@ namespace api {
     }
     #endif
 
+    struct Cors {
+        std::optional<std::vector<std::string>> allowed_origins;
+    };
+
     struct ApiConfig {
+        std::optional<Cors> cors;
         std::optional<bool> enabled;
+        std::optional<int64_t> keep_alive_timeout_seconds;
         std::optional<std::string> listen;
+        std::optional<int64_t> max_request_body_bytes;
+        std::optional<int64_t> read_timeout_seconds;
+        std::optional<int64_t> write_timeout_seconds;
     };
 
     struct CacheMetadata {
@@ -472,6 +481,7 @@ namespace api {
         std::optional<ConfigObject> config_object;
         std::optional<ConfigStateResponse> config_state_response;
         std::optional<ConfigUpdateResponse> config_update_response;
+        std::optional<Cors> cors_config;
         std::optional<Daemon> daemon_config;
         std::optional<Dns> dns_config;
         std::optional<DnsRuleElement> dns_rule;
@@ -521,6 +531,9 @@ namespace api {
 
 namespace keen_pbr3 {
 namespace api {
+    void from_json(const json & j, Cors & x);
+    void to_json(json & j, const Cors & x);
+
     void from_json(const json & j, ApiConfig & x);
     void to_json(json & j, const ApiConfig & x);
 
@@ -701,15 +714,34 @@ namespace api {
     void from_json(const json & j, RuntimeInterfaceStatusEnum & x);
     void to_json(json & j, const RuntimeInterfaceStatusEnum & x);
 
+    inline void from_json(const json & j, Cors& x) {
+        x.allowed_origins = get_stack_optional<std::vector<std::string>>(j, "allowed_origins");
+    }
+
+    inline void to_json(json & j, const Cors & x) {
+        j = json::object();
+        j["allowed_origins"] = x.allowed_origins;
+    }
+
     inline void from_json(const json & j, ApiConfig& x) {
+        x.cors = get_stack_optional<Cors>(j, "cors");
         x.enabled = get_stack_optional<bool>(j, "enabled");
+        x.keep_alive_timeout_seconds = get_stack_optional<int64_t>(j, "keep_alive_timeout_seconds");
         x.listen = get_stack_optional<std::string>(j, "listen");
+        x.max_request_body_bytes = get_stack_optional<int64_t>(j, "max_request_body_bytes");
+        x.read_timeout_seconds = get_stack_optional<int64_t>(j, "read_timeout_seconds");
+        x.write_timeout_seconds = get_stack_optional<int64_t>(j, "write_timeout_seconds");
     }
 
     inline void to_json(json & j, const ApiConfig & x) {
         j = json::object();
+        j["cors"] = x.cors;
         j["enabled"] = x.enabled;
+        j["keep_alive_timeout_seconds"] = x.keep_alive_timeout_seconds;
         j["listen"] = x.listen;
+        j["max_request_body_bytes"] = x.max_request_body_bytes;
+        j["read_timeout_seconds"] = x.read_timeout_seconds;
+        j["write_timeout_seconds"] = x.write_timeout_seconds;
     }
 
     inline void from_json(const json & j, CacheMetadata& x) {
@@ -1446,6 +1478,7 @@ namespace api {
         x.config_object = get_stack_optional<ConfigObject>(j, "ConfigObject");
         x.config_state_response = get_stack_optional<ConfigStateResponse>(j, "ConfigStateResponse");
         x.config_update_response = get_stack_optional<ConfigUpdateResponse>(j, "ConfigUpdateResponse");
+        x.cors_config = get_stack_optional<Cors>(j, "CorsConfig");
         x.daemon_config = get_stack_optional<Daemon>(j, "DaemonConfig");
         x.dns_config = get_stack_optional<Dns>(j, "DnsConfig");
         x.dns_rule = get_stack_optional<DnsRuleElement>(j, "DnsRule");
@@ -1500,6 +1533,7 @@ namespace api {
         j["ConfigObject"] = x.config_object;
         j["ConfigStateResponse"] = x.config_state_response;
         j["ConfigUpdateResponse"] = x.config_update_response;
+        j["CorsConfig"] = x.cors_config;
         j["DaemonConfig"] = x.daemon_config;
         j["DnsConfig"] = x.dns_config;
         j["DnsRule"] = x.dns_rule;

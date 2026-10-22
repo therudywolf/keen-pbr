@@ -4,6 +4,7 @@
 
 #include "../log/logger.hpp"
 #include "../log/trace.hpp"
+#include "../util/log_escape.hpp"
 #include "../util/traced_mutex.hpp"
 
 #include <algorithm>
@@ -276,6 +277,61 @@ bool resolve_static_file_under_root(const std::filesystem::path& root,
     return true;
 }
 
+std::string ascii_lowercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+} // namespace
+
+ApiServerLimits api_server_limits(const ApiConfig& config) {
+    ApiServerLimits limits;
+    limits.max_request_body_bytes = static_cast<std::size_t>(
+        config.max_request_body_bytes.value_or(1024 * 1024));
+    limits.read_timeout_seconds = static_cast<int>(config.read_timeout_seconds.value_or(15));
+    limits.write_timeout_seconds = static_cast<int>(config.write_timeout_seconds.value_or(15));
+    limits.keep_alive_timeout_seconds = static_cast<int>(
+        config.keep_alive_timeout_seconds.value_or(20));
+    return limits;
+}
+
+bool api_request_origin_allowed(const std::string& origin,
+                                const std::string& host,
+                                const std::vector<std::string>& allowed_origins,
+                                bool& cross_origin_allowed) {
+    cross_origin_allowed = false;
+    if (origin.empty()) {
+        return true;
+    }
+    // Same origin: the UI served by this daemon, whatever address or name
+    // the browser used to reach it (Host carries the port).
+    if (!host.empty()) {
+        const std::string normalized_origin = ascii_lowercase(origin);
+        const std::string normalized_host = ascii_lowercase(host);
+        if (normalized_origin == "http://" + normalized_host ||
+            normalized_origin == "https://" + normalized_host) {
+            return true;
+        }
+    }
+    if (std::find(allowed_origins.begin(), allowed_origins.end(), origin) !=
+        allowed_origins.end()) {
+        cross_origin_allowed = true;
+        return true;
+    }
+    return false;
+}
+
+namespace {
+
+std::vector<std::string> configured_allowed_origins(const ApiConfig& config) {
+    if (!config.cors.has_value()) {
+        return {};
+    }
+    return config.cors->allowed_origins.value_or(std::vector<std::string>{});
+}
+
 } // namespace
 
 struct ApiServer::Impl {
@@ -289,9 +345,50 @@ struct ApiServer::Impl {
     TracedMutex state_mutex;
     std::condition_variable_any startup_cv;
     std::string listen_error_message;
+    std::vector<std::string> allowed_origins;
 };
 
 ApiServer::ApiServer(const ApiConfig& config) : impl_(std::make_unique<Impl>()) {
+    const ApiServerLimits limits = api_server_limits(config);
+    impl_->server.set_payload_max_length(limits.max_request_body_bytes);
+    impl_->server.set_read_timeout(limits.read_timeout_seconds);
+    impl_->server.set_write_timeout(limits.write_timeout_seconds);
+    impl_->server.set_keep_alive_timeout(limits.keep_alive_timeout_seconds);
+    impl_->allowed_origins = configured_allowed_origins(config);
+
+    // Runs before routing, for the API and the static UI alike. The API has
+    // no authentication, so this is what keeps a web page opened in a LAN
+    // browser from POSTing to it.
+    impl_->server.set_pre_routing_handler(
+        [this](const httplib::Request& req, httplib::Response& res) {
+            const std::string origin = req.get_header_value("Origin");
+            bool cross_origin_allowed = false;
+            if (!api_request_origin_allowed(origin,
+                                            req.get_header_value("Host"),
+                                            impl_->allowed_origins,
+                                            cross_origin_allowed)) {
+                Logger::instance().verbose("API request {} {} rejected: Origin {} is not allowed",
+                                           req.method,
+                                           log_escape(req.path),
+                                           log_escape(origin));
+                res.status = 403;
+                res.set_content(make_error_json("origin not allowed"), "application/json");
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            if (cross_origin_allowed) {
+                res.set_header("Access-Control-Allow-Origin", origin);
+                res.set_header("Vary", "Origin");
+                res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                res.set_header("Access-Control-Allow-Headers", "Content-Type, Accept");
+                res.set_header("Access-Control-Max-Age", "600");
+            }
+            if (req.method == "OPTIONS") {
+                res.status = 204;
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+
     // Parse "host:port" from config.listen
     const std::string listen = config.listen.value_or("0.0.0.0:12121");
     auto colon = listen.rfind(':');

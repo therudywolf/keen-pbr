@@ -678,6 +678,29 @@ TEST_CASE("exec timeouts default to 90 s and 2 s and can be applied") {
     set_safe_exec_timeouts(previous.timeout, previous.kill_grace);
 }
 
+TEST_CASE("api limits and allowed origins are validated") {
+    CHECK(validate_issues(
+              R"({"api":{"enabled":true,"listen":"0.0.0.0:12121","max_request_body_bytes":null,"cors":{"allowed_origins":["https://router.example.org","http://192.168.1.10:5173"]}}})")
+              .empty());
+    const auto small_body = validate_issues(R"({"api":{"max_request_body_bytes":512}})");
+    REQUIRE(small_body.size() == 1);
+    CHECK(small_body[0].path == "api.max_request_body_bytes");
+    const auto zero_timeout = validate_issues(R"({"api":{"read_timeout_seconds":0}})");
+    REQUIRE(zero_timeout.size() == 1);
+    CHECK(zero_timeout[0].path == "api.read_timeout_seconds");
+    for (const char* origin : {"router.example.org", "https://router.example.org/",
+                               "https://router.example.org/ui", "ftp://router.example.org",
+                               "https://", "http://bad host"}) {
+        CAPTURE(origin);
+        const nlohmann::json config = {
+            {"api", {{"cors", {{"allowed_origins", {origin}}}}}},
+        };
+        const auto issues = validate_issues(config.dump());
+        REQUIRE(issues.size() == 1);
+        CHECK(issues[0].path == "api.cors.allowed_origins[0]");
+    }
+}
+
 TEST_CASE("remote list URLs allow only HTTP and HTTPS") {
     CHECK_NOTHROW(parse_test_config(
         R"({"lists":{"a":{"url":"http://example.com/a"},"b":{"url":"HTTPS://example.com/b"}}})"));

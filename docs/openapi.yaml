@@ -788,6 +788,60 @@ components:
           description: Address and port for the HTTP API.
           default: "0.0.0.0:12121"
           example: "0.0.0.0:12121"
+        max_request_body_bytes:
+          type: integer
+          nullable: true
+          minimum: 1024
+          default: 1048576
+          description: >
+            Maximum HTTP request body size in bytes; larger requests get 413.
+            Defaults to 1 MiB when omitted or null.
+          example: 1048576
+        read_timeout_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+          default: 15
+          description: Maximum time spent reading an HTTP request. Defaults to 15.
+          example: 15
+        write_timeout_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+          default: 15
+          description: Maximum time spent writing an HTTP response. Defaults to 15.
+          example: 15
+        keep_alive_timeout_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+          default: 20
+          description: Idle timeout for an HTTP keep-alive connection. Defaults to 20.
+          example: 20
+        cors:
+          $ref: "#/components/schemas/CorsConfig"
+
+    CorsConfig:
+      type: object
+      description: >
+        Cross-origin access to the API. A browser request whose Origin header
+        is neither http://<Host> nor https://<Host> (the UI served by the
+        daemon itself) is rejected with 403 "origin not allowed", so a web
+        page cannot drive the unauthenticated API (CSRF). Requests without an
+        Origin header (curl, scripts) are not affected.
+      properties:
+        allowed_origins:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Additional origins allowed exactly as written, e.g.
+            "https://router.example.org" behind a reverse proxy or
+            "http://192.168.1.10:5173" for a development UI. Scheme, host and
+            optional port; no path and no trailing slash.
+          default: []
+          example: ["https://router.example.org"]
 
     RetryConfig:
       type: object

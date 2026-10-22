@@ -4,11 +4,13 @@
 
 #include "../config/config.hpp"
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace httplib {
 class Request;
@@ -16,6 +18,28 @@ class Response;
 }
 
 namespace keen_pbr3 {
+
+// HTTP limits passed to cpp-httplib (api.max_request_body_bytes and the
+// api.*_timeout_seconds keys); httplib's own 5 s timeouts are too tight for
+// a browser on a slow link, an unbounded body is not.
+struct ApiServerLimits {
+    std::size_t max_request_body_bytes{1024U * 1024U};
+    int read_timeout_seconds{15};
+    int write_timeout_seconds{15};
+    int keep_alive_timeout_seconds{20};
+};
+
+ApiServerLimits api_server_limits(const ApiConfig& config);
+
+// CSRF guard for the unauthenticated API. A request without an Origin header
+// (curl, router scripts) is always allowed. With one it must be the origin
+// the request was sent to (http://<Host> or https://<Host>) or one of
+// `allowed_origins` (api.cors.allowed_origins, exact match).
+// `cross_origin_allowed` tells whether CORS response headers are needed.
+bool api_request_origin_allowed(const std::string& origin,
+                                const std::string& host,
+                                const std::vector<std::string>& allowed_origins,
+                                bool& cross_origin_allowed);
 
 class ApiError : public std::runtime_error {
 public:
