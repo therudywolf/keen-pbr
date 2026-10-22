@@ -42,6 +42,7 @@ add_executable(keen-pbr-tests
   test_refresh_coalescer.cpp
   test_interface_monitor.cpp
   test_urltest_switch.cpp
+  test_firewall_runtime.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
   ../src/config/config_writer.cpp

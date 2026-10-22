@@ -12,6 +12,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -61,6 +62,10 @@ std::vector<RuleState> apply_runtime_firewall(
     const auto& lists_map = config.lists ? *config.lists : empty_lists;
     const auto& route_rules = route_config.rules.value_or(std::vector<RouteRule>{});
     std::map<std::string, ListSetUsage> list_usage_cache;
+    // Lists whose sets were already declared (and whose static entries were
+    // already streamed) by an earlier rule. A list shared by several rules
+    // is loaded into its sets once instead of once per rule.
+    std::set<std::string> declared_lists;
 
     for (size_t rule_idx = 0; rule_idx < route_rules.size(); ++rule_idx) {
         const auto& rule = route_rules[rule_idx];
@@ -143,13 +148,18 @@ std::vector<RuleState> apply_runtime_firewall(
                 const std::string set6 = "kpbr6_" + list_name;
                 const std::string set4d = "kpbr4d_" + list_name;
                 const std::string set6d = "kpbr6d_" + list_name;
+                const bool first_use = declared_lists.insert(list_name).second;
 
                 if (usage.has_static_entries) {
-                    firewall.create_ipset(set4, AF_INET, 0);
                     rule_state.set_names.push_back(set4);
                     if (ipv6_decision.enabled) {
-                        firewall.create_ipset(set6, AF_INET6, 0);
                         rule_state.set_names.push_back(set6);
+                    }
+                }
+                if (usage.has_static_entries && first_use) {
+                    firewall.create_ipset(set4, AF_INET, 0);
+                    if (ipv6_decision.enabled) {
+                        firewall.create_ipset(set6, AF_INET6, 0);
                     }
 
                     auto loader4 = firewall.create_batch_loader(set4);
@@ -177,10 +187,14 @@ std::vector<RuleState> apply_runtime_firewall(
                 }
 
                 if (usage.has_domain_entries) {
-                    firewall.create_ipset(set4d, AF_INET, usage.dynamic_timeout);
+                    if (first_use) {
+                        firewall.create_ipset(set4d, AF_INET, usage.dynamic_timeout);
+                    }
                     rule_state.set_names.push_back(set4d);
                     if (ipv6_decision.enabled) {
-                        firewall.create_ipset(set6d, AF_INET6, usage.dynamic_timeout);
+                        if (first_use) {
+                            firewall.create_ipset(set6d, AF_INET6, usage.dynamic_timeout);
+                        }
                         rule_state.set_names.push_back(set6d);
                     }
                 }
