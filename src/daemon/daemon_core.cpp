@@ -401,15 +401,12 @@ void Daemon::schedule_sigusr1_runtime_refresh() {
             sigusr1_refresh_task_id_ = -1;
             Logger::instance().info("SIGUSR1: applying firewall refresh...");
             refresh_iproute_and_firewall_runtime();
-            
-            if (urltest_manager_) {
-                Logger::instance().info("SIGUSR1: probing urltest endpoints...");
-                for (const auto& ob : config_.outbounds.value_or(std::vector<Outbound>{})) {
-                    if (ob.type == OutboundType::URLTEST) {
-                        urltest_manager_->trigger_immediate_test(ob.tag);
-                    }
-                }
-            }
+            // No urltest probe round here: the netlink hook fires SIGUSR1 on
+            // every NDM netfilter rebuild (UPnP: about once a minute), which
+            // says nothing about the candidates' health. Probing every
+            // candidate on each of them only loaded the router. A candidate
+            // whose link changes state is probed at once instead (see
+            // handle_interface_state_change); the rest wait for the interval.
             Logger::instance().info("SIGUSR1: firewall refresh complete.");
         },
         "sigusr1-runtime-refresh");
@@ -457,11 +454,42 @@ bool Daemon::is_interface_outbound_in_use(const std::string& interface_name) con
     });
 }
 
+void Daemon::trigger_urltest_probes_for_interface(const std::string& interface_name) {
+    if (!urltest_manager_) {
+        return;
+    }
+    const auto outbounds = config_.outbounds.value_or(std::vector<Outbound>{});
+    for (const auto& urltest : outbounds) {
+        if (urltest.type != OutboundType::URLTEST) {
+            continue;
+        }
+        bool candidate_changed = false;
+        for (const auto& group : urltest.outbound_groups.value_or(std::vector<OutboundGroup>{})) {
+            for (const auto& child_tag : group.outbounds) {
+                const Outbound* child = find_outbound(outbounds, child_tag);
+                if (child && child->type == OutboundType::INTERFACE &&
+                    child->interface.value_or("") == interface_name) {
+                    candidate_changed = true;
+                }
+            }
+        }
+        if (candidate_changed) {
+            Logger::instance().info("Urltest '{}': candidate interface {} changed state, probing now",
+                                    urltest.tag,
+                                    interface_name);
+            urltest_manager_->trigger_immediate_test(urltest.tag);
+        }
+    }
+}
+
 void Daemon::handle_interface_state_change(const std::string& interface_name, bool is_up) {
     auto& log = Logger::instance();
     if (!is_interface_outbound_in_use(interface_name)) {
         return;
     }
+    // A candidate going down (or coming back) is the moment a urltest
+    // selection may need to change; do not wait for the next interval.
+    trigger_urltest_probes_for_interface(interface_name);
 
     log.info("Interface {} state changed to {}, iproute and firewall refresh triggered",
              interface_name,

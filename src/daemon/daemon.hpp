@@ -153,6 +153,8 @@ private:
     void handle_sighup();
     void handle_interface_monitor_events(uint32_t events);
     void handle_interface_state_change(const std::string& interface_name, bool is_up);
+    // Probe at once every urltest that has a candidate on this interface.
+    void trigger_urltest_probes_for_interface(const std::string& interface_name);
     bool is_interface_outbound_in_use(const std::string& interface_name) const;
     void refresh_iproute_and_firewall_runtime();
     void dispatch_event_fd(int fd, uint32_t events);
