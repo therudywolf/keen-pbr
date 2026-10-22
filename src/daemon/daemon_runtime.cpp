@@ -202,11 +202,11 @@ void Daemon::handle_urltest_selection_change(const std::string& urltest_tag,
     }, "urltest-selection-change:" + urltest_tag);
 }
 
-void Daemon::commit_urltest_probe_results(const std::string& urltest_tag,
+bool Daemon::commit_urltest_probe_results(const std::string& urltest_tag,
                                           std::uint64_t probe_generation,
                                           std::map<std::string, URLTestResult> results,
                                           TraceId trace_id) {
-    post_control_task(
+    return post_control_task(
         [this,
          urltest_tag,
          probe_generation,
@@ -246,10 +246,10 @@ void Daemon::register_urltest_outbounds() {
                                          "tag={} generation={}",
                                          urltest_tag,
                                          probe_generation);
-                commit_urltest_probe_results(urltest_tag,
-                                             probe_generation,
-                                             std::move(results),
-                                             trace_id);
+                return commit_urltest_probe_results(urltest_tag,
+                                                    probe_generation,
+                                                    std::move(results),
+                                                    trace_id);
             });
     }
 

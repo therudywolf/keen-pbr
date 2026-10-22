@@ -29,6 +29,30 @@ std::chrono::seconds normalize_interval_seconds(const Outbound& outbound) {
     return interval;
 }
 
+// Runs a callable when the scope ends unless dismissed.
+template <typename Fn>
+class ScopeExit {
+public:
+    explicit ScopeExit(Fn fn) : fn_(std::move(fn)) {}
+    ~ScopeExit() {
+        if (active_) {
+            fn_();
+        }
+    }
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+    void dismiss() { active_ = false; }
+
+private:
+    Fn fn_;
+    bool active_{true};
+};
+
+template <typename Fn>
+ScopeExit<Fn> make_scope_exit(Fn fn) {
+    return ScopeExit<Fn>(std::move(fn));
+}
+
 } // namespace
 
 UrltestManager::UrltestManager(URLTester& tester,
@@ -196,6 +220,23 @@ bool UrltestManager::is_probe_current(const std::string& tag,
     return it != states_.end() && it->second.generation == generation;
 }
 
+void UrltestManager::abandon_probe(const std::string& tag,
+                                   std::uint64_t generation,
+                                   const std::vector<std::string>& child_tags) {
+    KPBR_SHARED_UNIQUE_LOCK(lock, mutex_);
+    auto it = states_.find(tag);
+    if (it == states_.end() || it->second.generation != generation) {
+        return;
+    }
+    it->second.probe_inflight = false;
+    for (const auto& child_tag : child_tags) {
+        auto breaker = it->second.circuit_breakers.find(child_tag);
+        if (breaker != it->second.circuit_breakers.end()) {
+            breaker->second.end_request(child_tag);
+        }
+    }
+}
+
 bool UrltestManager::queue_probe_unlocked(const std::string& tag,
                                           const std::string& reason) {
     std::vector<TestCandidate> candidates;
@@ -262,6 +303,12 @@ bool UrltestManager::queue_probe_unlocked(const std::string& tag,
                              reason,
                              candidates.size());
 
+    std::vector<std::string> candidate_tags;
+    candidate_tags.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        candidate_tags.push_back(candidate.child_tag);
+    }
+
     const bool enqueued = blocking_executor_.try_post(
         "urltest:" + tag,
         [this,
@@ -269,10 +316,18 @@ bool UrltestManager::queue_probe_unlocked(const std::string& tag,
          probe_generation,
          reason,
          candidates_for_probe = candidates,
+         candidate_tags_for_probe = candidate_tags,
          trace_id]() mutable {
             ScopedTraceContext trace_scope(trace_id);
+            // Every way out of this task except a queued commit must release
+            // the probe: otherwise probe_inflight (and a half-open breaker
+            // request) stays set and the group never probes again, freezing
+            // the current selection.
+            auto completion_guard = make_scope_exit(
+                [this, &tag, probe_generation, &candidate_tags_for_probe]() {
+                    abandon_probe(tag, probe_generation, candidate_tags_for_probe);
+                });
             std::map<std::string, URLTestResult> results;
-            results.clear();
 
             for (const auto& candidate : candidates_for_probe) {
                 {
@@ -298,10 +353,20 @@ bool UrltestManager::queue_probe_unlocked(const std::string& tag,
                                          candidate.fwmark,
                                          reason);
 
-                auto result = tester_.test(candidate.url,
-                                           candidate.fwmark,
-                                           candidate.timeout_ms,
-                                           candidate.retry);
+                URLTestResult result;
+                try {
+                    result = tester_.test(candidate.url,
+                                          candidate.fwmark,
+                                          candidate.timeout_ms,
+                                          candidate.retry);
+                } catch (const std::exception& error) {
+                    // A failed probe, not a reason to lose the whole round.
+                    result.success = false;
+                    result.error = std::string("probe exception: ") + error.what();
+                } catch (...) {
+                    result.success = false;
+                    result.error = "probe exception: unknown error";
+                }
 
                 const auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - started_at).count();
@@ -318,8 +383,20 @@ bool UrltestManager::queue_probe_unlocked(const std::string& tag,
                 results.emplace(candidate.child_tag, std::move(result));
             }
 
-            if (on_commit_) {
-                on_commit_(tag, probe_generation, std::move(results), trace_id);
+            bool queued = false;
+            try {
+                queued = on_commit_ &&
+                         on_commit_(tag, probe_generation, std::move(results), trace_id);
+            } catch (const std::exception& error) {
+                Logger::instance().warn("Urltest '{}': cannot commit probe results: {}",
+                                        tag,
+                                        error.what());
+            } catch (...) {
+                Logger::instance().warn("Urltest '{}': cannot commit probe results", tag);
+            }
+            if (queued) {
+                // commit_probe_results() now owns clearing probe_inflight.
+                completion_guard.dismiss();
             }
         },
         trace_id);

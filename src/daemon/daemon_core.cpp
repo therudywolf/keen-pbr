@@ -250,13 +250,13 @@ void Daemon::enqueue_control_task(std::function<void()> task,
     wake_control_loop();
 }
 
-void Daemon::post_control_task(std::function<void()> task, const std::string& label) {
-    if (!task) return;
+bool Daemon::post_control_task(std::function<void()> task, const std::string& label) {
+    if (!task) return false;
     if (!accept_posted_control_tasks_.load(std::memory_order_acquire)) {
         Logger::instance().trace("control_task_skip",
                                  "label={} reason=posted_tasks_disabled",
                                  label.empty() ? "post-control-task" : label);
-        return;
+        return false;
     }
 
     const auto effective_label = label.empty() ? std::string("post-control-task") : label;
@@ -299,6 +299,7 @@ void Daemon::post_control_task(std::function<void()> task, const std::string& la
                              "label={} wait=false mode=post",
                              effective_label);
     wake_control_loop();
+    return true;
 }
 
 void Daemon::enqueue_control_command(std::function<void()> command,

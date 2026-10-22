@@ -10,6 +10,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace keen_pbr3 {
 
@@ -30,7 +31,10 @@ struct UrltestState {
 // Parameters: (urltest_tag, new_child_outbound_tag)
 // Guaranteed to be called without any UrltestManager lock held.
 using UrltestChangeCallback = std::function<void(const std::string&, const std::string&)>;
-using UrltestCommitCallback = std::function<void(const std::string&,
+// Hands a finished probe round to the control thread, which then calls
+// commit_probe_results(). Returns false when the round could not be queued;
+// the manager then releases the probe itself.
+using UrltestCommitCallback = std::function<bool(const std::string&,
                                                  std::uint64_t,
                                                  std::map<std::string, URLTestResult>,
                                                  TraceId)>;
@@ -79,6 +83,13 @@ private:
     // state for the given tag. Caller must hold at least a shared_lock.
     bool is_probe_current(const std::string& tag,
                           std::uint64_t generation) const REQUIRES_SHARED(mutex_);
+
+    // Release a probe round that will never be committed (exception, stale
+    // abort, commit not queued): clear probe_inflight and end the candidates'
+    // circuit-breaker requests, or the group stops probing for good.
+    void abandon_probe(const std::string& tag,
+                       std::uint64_t generation,
+                       const std::vector<std::string>& child_tags);
 
     // Run URL tests for all child outbounds of the given urltest and update
     // the internal selection. Returns the new selection if it changed.

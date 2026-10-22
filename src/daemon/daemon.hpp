@@ -128,7 +128,9 @@ public:
     // task only runs after the current event-loop iteration completes and all
     // caller locks have been released. Use this for callbacks that must not
     // run re-entrantly inside the current controller action.
-    void post_control_task(std::function<void()> task,
+    // Returns false when the task was dropped because the daemon is shutting
+    // down and no longer accepts posted tasks.
+    bool post_control_task(std::function<void()> task,
                            const std::string& label = "");
 
     // Run the daemon lifecycle: startup, event loop, shutdown.
@@ -186,7 +188,7 @@ private:
     void register_urltest_outbounds();
     void handle_urltest_selection_change(const std::string& urltest_tag,
                                          const std::string& new_child_tag);
-    void commit_urltest_probe_results(const std::string& urltest_tag,
+    bool commit_urltest_probe_results(const std::string& urltest_tag,
                                       std::uint64_t probe_generation,
                                       std::map<std::string, URLTestResult> results,
                                       TraceId trace_id);
