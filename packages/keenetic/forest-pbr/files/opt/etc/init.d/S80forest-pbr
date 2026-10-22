@@ -13,6 +13,8 @@ PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/u
 IPSET_PROBE_SET="kpbr_probe_hash_net"
 IPSET_COMPONENTS_MESSAGE="ipset kernel modules are not available. Make sure that you followed the installation process and installed all required components: Netfilter Subsystem Kernel Modules and Xtables-addons Extension Package for Netfilter."
 KEENETIC_RCI_STARTUP_ATTEMPTS=5
+CLEANUP_FIREWALL="/opt/usr/lib/forest-pbr/cleanup-firewall.sh"
+STOP_WAIT_SECONDS=15
 
 # Hand the optional persistent log file down to the daemon environment so its
 # activity survives a reboot. Skipped silently when the value is unset.
@@ -305,6 +307,38 @@ prepare_stop() {
     fi
 }
 
+# Whether a daemon still runs: its PID file names it (pidof above), or a
+# forest-pbr process runs `service` without one (its PID file emptied or
+# removed). Taking a live daemon for gone here would pull its rules away.
+daemon_alive() {
+    local pid
+
+    pidof "$PROCS" >/dev/null 2>&1 && return 0
+    for pid in $(command pidof "$PROCS" 2>/dev/null); do
+        tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -q ' service ' && return 0
+    done
+    return 1
+}
+
+# After a clean stop the daemon has removed its firewall rules and ipsets;
+# after kill -9 or a crash they are still there. cleanup-firewall.sh removes
+# them (and logs a warning when it finds any) once the daemon is gone. It does
+# not run while a daemon is alive: it would pull the rules from under it.
+cleanup_after_stop() {
+    local waited=0
+
+    while daemon_alive; do
+        if [ "$waited" -ge "$STOP_WAIT_SECONDS" ]; then
+            log_warn "forest-pbr is still running after stop; its firewall rules are left in place"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    [ -x "$CLEANUP_FIREWALL" ] && "$CLEANUP_FIREWALL" --reason stop
+    return 0
+}
+
 reapply_dnsmasq_config() {
     if [ -x "$DNSMASQ_HELPER" ]; then
         "$DNSMASQ_HELPER" activate || return 1
@@ -454,4 +488,17 @@ case "$1" in
         ;;
 esac
 
-[ "$FOREST_PBR_SKIP_RC_FUNC" = yes ] || . /opt/etc/init.d/rc.func
+[ "$FOREST_PBR_SKIP_RC_FUNC" = yes ] && exit 0
+
+# rc.func dispatches the action. It runs in a subshell so that the cleanup
+# below still runs when it exits.
+( . /opt/etc/init.d/rc.func )
+rc=$?
+
+case "$1" in
+    stop|kill)
+        cleanup_after_stop
+        ;;
+esac
+
+exit "$rc"

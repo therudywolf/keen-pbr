@@ -110,6 +110,7 @@ define Package/forest-pbr/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/etc/forest-pbr/defaults $(1)/opt/etc/forest-pbr/defaults
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/etc/forest-pbr/dnsmasq-fallback.conf $(1)/opt/etc/forest-pbr/dnsmasq-fallback.conf
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/usr/lib/forest-pbr/dnsmasq.sh $(1)/opt/usr/lib/forest-pbr/dnsmasq.sh
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/usr/lib/forest-pbr/cleanup-firewall.sh $(1)/opt/usr/lib/forest-pbr/cleanup-firewall.sh
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/usr/lib/forest-pbr/dnsmasq.conf.template $(1)/opt/usr/lib/forest-pbr/dnsmasq.conf.template
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/etc/ndm/netfilter.d/50-forest-pbr-routing.sh $(1)/opt/etc/ndm/netfilter.d/50-forest-pbr-routing.sh
 	$(CP) $(PKG_BUILD_DIR)/frontend/dist/. $(1)/opt/usr/share/forest-pbr/frontend/
@@ -165,6 +166,7 @@ define Package/forest-pbr-headless/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/etc/forest-pbr/defaults $(1)/opt/etc/forest-pbr/defaults
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/etc/forest-pbr/dnsmasq-fallback.conf $(1)/opt/etc/forest-pbr/dnsmasq-fallback.conf
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/usr/lib/forest-pbr/dnsmasq.sh $(1)/opt/usr/lib/forest-pbr/dnsmasq.sh
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/usr/lib/forest-pbr/cleanup-firewall.sh $(1)/opt/usr/lib/forest-pbr/cleanup-firewall.sh
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/usr/lib/forest-pbr/dnsmasq.conf.template $(1)/opt/usr/lib/forest-pbr/dnsmasq.conf.template
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/packages/keenetic/forest-pbr/files/opt/etc/ndm/netfilter.d/50-forest-pbr-routing.sh $(1)/opt/etc/ndm/netfilter.d/50-forest-pbr-routing.sh
 	$(INSTALL_CONF) $(KEEN_PBR_HEADLESS_CONFIG) $(1)/opt/etc/forest-pbr/config.json

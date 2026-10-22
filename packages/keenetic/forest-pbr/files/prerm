@@ -1,7 +1,16 @@
 #!/bin/sh
+# Best effort throughout: removal must never fail here.
 
 echo "Stopping forest-pbr service..."
 /opt/etc/init.d/S80forest-pbr stop || true
 
+# On an upgrade the new package restarts the service and the daemon rebuilds
+# its firewall state, so only the service is stopped.
+if [ "$PKG_UPGRADE" = 1 ] || [ "$1" = upgrade ]; then
+    exit 0
+fi
+
+# Remove the firewall rules and ipsets a crashed or stuck daemon left behind.
+/opt/usr/lib/forest-pbr/cleanup-firewall.sh --reason uninstall >/dev/null 2>&1 || true
 
 exit 0
