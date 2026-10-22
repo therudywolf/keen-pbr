@@ -5,6 +5,7 @@
 #include "../health/url_tester.hpp"
 #include "../util/blocking_executor.hpp"
 #include "../util/traced_mutex.hpp"
+#include "urltest_probe.hpp"
 
 #include <functional>
 #include <map>
@@ -22,6 +23,9 @@ struct UrltestState {
     std::map<std::string, URLTestResult> last_results;
     std::map<std::string, CircuitBreaker> circuit_breakers;
     std::string selected_outbound;
+    // Device each interface-type candidate is probed through (child tag ->
+    // interface); table-type candidates are probed by fwmark only.
+    std::map<std::string, std::string> probe_interfaces;
     int scheduler_task_id{-1};
     bool probe_inflight{false};
     std::uint64_t generation{0};
@@ -61,7 +65,10 @@ public:
 
     // Register a urltest outbound, queue the initial URL test, and schedule
     // periodic retests. on_change_ reports the selection once a round commits.
-    void register_urltest(const Outbound& ut);
+    // `outbounds` (the whole config) tells which candidates are interfaces, so
+    // their probes can be bound to the member's own device.
+    void register_urltest(const Outbound& ut,
+                          const std::vector<Outbound>& outbounds = {});
 
     // Run tests immediately for a specific urltest outbound (e.g. on SIGUSR1).
     // Invokes on_change_ if the selection changes.

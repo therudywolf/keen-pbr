@@ -425,9 +425,10 @@ void Daemon::register_urltest_outbounds() {
             });
     }
 
-    for (const auto& ob : config_.outbounds.value_or(std::vector<Outbound>{})) {
+    const auto outbounds = config_.outbounds.value_or(std::vector<Outbound>{});
+    for (const auto& ob : outbounds) {
         if (ob.type == OutboundType::URLTEST) {
-            urltest_manager_->register_urltest(ob);
+            urltest_manager_->register_urltest(ob, outbounds);
         }
     }
 }

@@ -17,6 +17,8 @@ struct TestCandidate {
     std::string child_tag;
     std::string url;
     uint32_t fwmark{0};
+    // Device the probe socket is bound to; empty for table-type members.
+    std::string interface;
     uint32_t timeout_ms{0};
     RetryConfig retry;
 };
@@ -80,12 +82,14 @@ UrltestManager::~UrltestManager() {
     }
 }
 
-void UrltestManager::register_urltest(const Outbound& ut) {
+void UrltestManager::register_urltest(const Outbound& ut,
+                                      const std::vector<Outbound>& outbounds) {
     {
         KPBR_SHARED_UNIQUE_LOCK(lock, mutex_);
 
         UrltestState state;
         state.config = ut;
+        state.probe_interfaces = urltest_probe_interfaces(ut, outbounds);
 
         for (const auto& group : ut.outbound_groups.value_or(std::vector<OutboundGroup>{})) {
             for (const auto& child_tag : group.outbounds) {
@@ -286,14 +290,18 @@ bool UrltestManager::queue_probe_unlocked(const std::string& tag,
                 }
 
                 cb_it->second.begin_request(child_tag);
-                candidates.push_back(TestCandidate{
-                    .child_tag = child_tag,
-                    .url = state.config.url.value_or(""),
-                    .fwmark = mark_it->second,
-                    .timeout_ms = static_cast<uint32_t>(
-                        state.config.probe_timeout_ms.value_or(kDefaultUrltestProbeTimeoutMs)),
-                    .retry = state.config.retry.value_or(RetryConfig{}),
-                });
+                TestCandidate candidate;
+                candidate.child_tag = child_tag;
+                candidate.url = state.config.url.value_or("");
+                candidate.fwmark = mark_it->second;
+                const auto interface_it = state.probe_interfaces.find(child_tag);
+                if (interface_it != state.probe_interfaces.end()) {
+                    candidate.interface = interface_it->second;
+                }
+                candidate.timeout_ms = static_cast<uint32_t>(
+                    state.config.probe_timeout_ms.value_or(kDefaultUrltestProbeTimeoutMs));
+                candidate.retry = state.config.retry.value_or(RetryConfig{});
+                candidates.push_back(std::move(candidate));
             }
         }
     }
@@ -348,19 +356,31 @@ bool UrltestManager::queue_probe_unlocked(const std::string& tag,
 
                 const auto started_at = std::chrono::steady_clock::now();
                 Logger::instance().trace("urltest_candidate_start",
-                                         "tag={} generation={} child={} fwmark={} trigger={}",
+                                         "tag={} generation={} child={} fwmark={} interface={} trigger={}",
                                          tag,
                                          probe_generation,
                                          candidate.child_tag,
                                          candidate.fwmark,
+                                         candidate.interface.empty() ? std::string("-")
+                                                                     : candidate.interface,
                                          reason);
 
                 URLTestResult result;
                 try {
-                    result = tester_.test(candidate.url,
-                                          candidate.fwmark,
-                                          candidate.timeout_ms,
-                                          candidate.retry);
+                    // A member whose interface is missing or down cannot be
+                    // healthy: fail it without a network round trip (and
+                    // without its retries).
+                    if (const auto unavailable =
+                            probe_interface_unavailable(candidate.interface)) {
+                        result.success = false;
+                        result.error = *unavailable;
+                    } else {
+                        result = tester_.test(candidate.url,
+                                              candidate.fwmark,
+                                              candidate.timeout_ms,
+                                              candidate.retry,
+                                              candidate.interface);
+                    }
                 } catch (const std::exception& error) {
                     // A failed probe, not a reason to lose the whole round.
                     result.success = false;

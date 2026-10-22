@@ -43,6 +43,7 @@ add_executable(keen-pbr-tests
   test_interface_monitor.cpp
   test_urltest_switch.cpp
   test_firewall_runtime.cpp
+  test_urltest_probe.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
   ../src/config/config_writer.cpp
@@ -81,6 +82,7 @@ add_executable(keen-pbr-tests
   ../src/daemon/pid_file.cpp
   ../src/daemon/resolver_health.cpp
   ../src/http/http_client.cpp
+  ../src/health/url_tester.cpp
   ../src/routing/netlink.cpp
   ../src/routing/interface_monitor.cpp
   ../src/routing/conntrack_flush.cpp
