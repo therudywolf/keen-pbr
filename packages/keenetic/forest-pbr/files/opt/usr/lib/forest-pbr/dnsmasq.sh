@@ -111,6 +111,13 @@ effective_config_content() {
     fallback_conf_line
 }
 
+# The config-hash record carries the time of the run, so no two runs print the
+# same text. Compare without that timestamp; the hash after it still changes
+# whenever the config does.
+stable_config_content() {
+    effective_config_content | sed "s/^\($CONFIG_HASH_RECORD\)[0-9]*|/\1|/"
+}
+
 dnsmasq_is_running() {
     pidof dnsmasq >/dev/null 2>&1
 }
@@ -118,7 +125,7 @@ dnsmasq_is_running() {
 restart_dnsmasq() {
     if [ -x /opt/etc/init.d/S56dnsmasq ]; then
         hash_file="$(resolver_config_hash_file)"
-        new_hash="$(effective_config_content | md5sum | awk '{print $1}')"
+        new_hash="$(stable_config_content | md5sum | awk '{print $1}')"
         old_hash=""
         if [ -f "$hash_file" ]; then
             old_hash="$(cat "$hash_file")"
