@@ -607,6 +607,15 @@ nlohmann::json NftablesFirewall::build_apply_document(const LiveTableState& live
 }
 
 void NftablesFirewall::apply(FirewallApplyMode mode) {
+    if (mode == FirewallApplyMode::RulesOnly) {
+        // Not implemented for nftables: the caller falls back to PreserveSets,
+        // which this backend applies as one atomic batch anyway. The buffers
+        // of this attempt must not leak into that apply.
+        pending_sets_.clear();
+        pending_elements_.clear();
+        pending_rules_.clear();
+        throw FirewallRulesOnlyError("the nftables backend has no rules-only refresh");
+    }
     const bool preserve_sets = mode == FirewallApplyMode::PreserveSets;
     const LiveTableState live_state = preserve_sets ? read_live_table_state() : LiveTableState{};
 

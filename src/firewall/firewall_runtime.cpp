@@ -6,14 +6,18 @@
 #include "../lists/list_entry_visitor.hpp"
 #include "../lists/list_set_usage.hpp"
 #include "../lists/list_streamer.hpp"
+#include "../log/logger.hpp"
 #include "../util/ipv6_support.hpp"
 
 #include <arpa/inet.h>
 
+#include <chrono>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <set>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -39,20 +43,56 @@ L4Proto parse_rule_proto(const std::optional<std::string>& proto) {
     throw FirewallError("Unsupported route rule protocol: " + *proto);
 }
 
-} // namespace
+// Size and modification time of a file, or "missing".
+std::string file_stamp(const std::filesystem::path& path) {
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec) {
+        return "missing";
+    }
+    const auto mtime = std::filesystem::last_write_time(path, ec);
+    if (ec) {
+        return "missing";
+    }
+    return std::to_string(size) + "@" +
+           std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              mtime.time_since_epoch())
+                              .count());
+}
 
-std::vector<RuleState> apply_runtime_firewall(
+std::vector<RuleState> apply_runtime_firewall_impl(
     const Config& config,
     const OutboundMarkMap& outbound_marks,
     const std::map<std::string, std::string>& urltest_selections,
     const CacheManager& cache_manager,
     Firewall& firewall,
-    FirewallApplyMode mode) {
+    FirewallApplyMode mode,
+    FirewallSetCache* set_cache) {
     ListStreamer list_streamer(cache_manager);
     auto rule_states = build_fw_rule_states(config, outbound_marks, &urltest_selections);
     const RouteConfig route_config = config.route.value_or(RouteConfig{});
     const Ipv6SupportDecision ipv6_decision = resolve_ipv6_support(config);
     log_ipv6_support_decision_once(ipv6_decision);
+
+    // RulesOnly reuses what the last full apply loaded, but only while the
+    // inputs of the sets are exactly the same.
+    const bool rules_only = mode == FirewallApplyMode::RulesOnly;
+    std::string fingerprint;
+    if (rules_only) {
+        if (set_cache == nullptr || !set_cache->valid) {
+            throw FirewallRulesOnlyError("no set layout recorded by a previous full apply");
+        }
+        fingerprint = firewall_set_fingerprint(config, cache_manager, ipv6_decision.enabled);
+        if (fingerprint != set_cache->fingerprint) {
+            throw FirewallRulesOnlyError("lists or config changed since the sets were loaded");
+        }
+    } else if (set_cache != nullptr) {
+        // Stamped before streaming: a file that changes during the apply
+        // then differs next time and forces a reload.
+        fingerprint = firewall_set_fingerprint(config, cache_manager, ipv6_decision.enabled);
+        set_cache->invalidate();
+    }
+
     firewall.set_ipv6_enabled(ipv6_decision.enabled);
     firewall.set_global_prefilter(build_firewall_global_prefilter(config));
     firewall.set_fwmark_mask(fwmark_mask_value(config.fwmark.value_or(FwmarkConfig{})));
@@ -138,9 +178,18 @@ std::vector<RuleState> apply_runtime_firewall(
                 const auto& list_cfg = list_cfg_it->second;
                 auto usage_it = list_usage_cache.find(list_name);
                 if (usage_it == list_usage_cache.end()) {
-                    usage_it = list_usage_cache.emplace(
-                        list_name,
-                        analyze_list_set_usage(list_name, list_cfg, list_streamer)).first;
+                    if (rules_only) {
+                        const auto cached = set_cache->usage.find(list_name);
+                        if (cached == set_cache->usage.end()) {
+                            throw FirewallRulesOnlyError("no recorded set layout for list " +
+                                                         list_name);
+                        }
+                        usage_it = list_usage_cache.emplace(list_name, cached->second).first;
+                    } else {
+                        usage_it = list_usage_cache.emplace(
+                            list_name,
+                            analyze_list_set_usage(list_name, list_cfg, list_streamer)).first;
+                    }
                 }
                 const auto& usage = usage_it->second;
 
@@ -161,7 +210,8 @@ std::vector<RuleState> apply_runtime_firewall(
                     if (ipv6_decision.enabled) {
                         firewall.create_ipset(set6, AF_INET6, 0);
                     }
-
+                }
+                if (usage.has_static_entries && first_use && !rules_only) {
                     auto loader4 = firewall.create_batch_loader(set4);
                     auto loader6 = ipv6_decision.enabled
                         ? firewall.create_batch_loader(set6)
@@ -270,7 +320,86 @@ std::vector<RuleState> apply_runtime_firewall(
     }
 
     firewall.apply(mode);
+    if (set_cache != nullptr && !rules_only) {
+        set_cache->fingerprint = std::move(fingerprint);
+        set_cache->usage = std::move(list_usage_cache);
+        set_cache->valid = true;
+    }
     return rule_states;
+}
+
+} // namespace
+
+std::string firewall_set_fingerprint(const Config& config,
+                                     const CacheManager& cache_manager,
+                                     bool ipv6_enabled) {
+    static const std::map<std::string, ListConfig> empty_lists;
+    const auto& lists_map = config.lists ? *config.lists : empty_lists;
+    std::set<std::string> referenced;
+    for (const auto& rule : config.route.value_or(RouteConfig{}).rules.value_or(std::vector<RouteRule>{})) {
+        if (!route_rule_enabled(rule)) {
+            continue;
+        }
+        const auto& names = route_rule_lists(rule);
+        referenced.insert(names.begin(), names.end());
+    }
+
+    std::string fingerprint = ipv6_enabled ? "ipv6;" : "ipv4;";
+    for (const auto& name : referenced) {
+        fingerprint += name;
+        const auto it = lists_map.find(name);
+        if (it == lists_map.end()) {
+            fingerprint += "=missing;";
+            continue;
+        }
+        const auto& list_cfg = it->second;
+        fingerprint += "|ttl=" + std::to_string(list_cfg.ttl_ms.value_or(0));
+        fingerprint += "|cidrs=";
+        for (const auto& cidr : list_cfg.ip_cidrs.value_or(std::vector<std::string>{})) {
+            fingerprint += cidr;
+            fingerprint += ',';
+        }
+        fingerprint += "|domains=" +
+                       std::to_string(list_cfg.domains ? list_cfg.domains->size() : 0);
+        if (list_cfg.file.has_value()) {
+            fingerprint += "|file=" + *list_cfg.file + "@" + file_stamp(*list_cfg.file);
+        }
+        if (list_cfg.url.has_value()) {
+            fingerprint += "|cache=" + (cache_manager.has_cache(name)
+                                            ? file_stamp(cache_manager.cache_path(name))
+                                            : std::string("none"));
+        }
+        fingerprint += ';';
+    }
+    return fingerprint;
+}
+
+std::vector<RuleState> apply_runtime_firewall(
+    const Config& config,
+    const OutboundMarkMap& outbound_marks,
+    const std::map<std::string, std::string>& urltest_selections,
+    const CacheManager& cache_manager,
+    Firewall& firewall,
+    FirewallApplyMode mode,
+    FirewallSetCache* set_cache) {
+    if (mode != FirewallApplyMode::RulesOnly) {
+        return apply_runtime_firewall_impl(config, outbound_marks, urltest_selections,
+                                           cache_manager, firewall, mode, set_cache);
+    }
+
+    try {
+        return apply_runtime_firewall_impl(config, outbound_marks, urltest_selections,
+                                           cache_manager, firewall,
+                                           FirewallApplyMode::RulesOnly, set_cache);
+    } catch (const std::exception& e) {
+        // Any doubt about the live sets: reload them along with the rules.
+        Logger::instance().warn("Firewall rules-only refresh not possible ({}); "
+                                "reloading the sets as well",
+                                e.what());
+    }
+    return apply_runtime_firewall_impl(config, outbound_marks, urltest_selections,
+                                       cache_manager, firewall,
+                                       FirewallApplyMode::PreserveSets, set_cache);
 }
 
 } // namespace keen_pbr3

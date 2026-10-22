@@ -4,6 +4,9 @@
 #include "../src/firewall/firewall_runtime.hpp"
 #include "../src/lists/list_entry_visitor.hpp"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -51,7 +54,20 @@ public:
 
     void apply(FirewallApplyMode mode) override {
         applied_modes.push_back(mode);
+        if (mode == FirewallApplyMode::RulesOnly && refuse_rules_only) {
+            throw FirewallRulesOnlyError("set kpbr4_shared is missing");
+        }
     }
+
+    void reset_records() {
+        sets.clear();
+        rules.clear();
+        loaders.clear();
+        entries.clear();
+        applied_modes.clear();
+    }
+
+    bool refuse_rules_only{false};
 
     void cleanup() override {}
 
@@ -155,4 +171,126 @@ TEST_CASE("apply_runtime_firewall: a list shared by two rules is streamed into i
     }
     CHECK(shared_rules == 2);
     CHECK(firewall.applied_modes == std::vector<FirewallApplyMode>{FirewallApplyMode::Destructive});
+}
+
+TEST_CASE("apply_runtime_firewall: RulesOnly reuses the recorded set layout without streaming") {
+    const Config config = shared_list_config();
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+    FirewallSetCache set_cache;
+
+    const auto full = apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::Destructive, &set_cache);
+    CHECK(set_cache.valid);
+    firewall.reset_records();
+
+    const auto refreshed = apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+
+    CHECK(firewall.applied_modes == std::vector<FirewallApplyMode>{FirewallApplyMode::RulesOnly});
+    CHECK(firewall.loaders.empty());
+    CHECK(firewall.entries.empty());
+    // The sets are still declared, so the backend can check them.
+    CHECK(count_of(firewall.sets, "kpbr4_shared") == 1);
+    CHECK(count_of(firewall.sets, "kpbr4d_shared") == 1);
+    REQUIRE(refreshed.size() == full.size());
+    for (size_t i = 0; i < full.size(); ++i) {
+        CHECK(refreshed[i].set_names == full[i].set_names);
+        CHECK(refreshed[i].fwmark == full[i].fwmark);
+    }
+    CHECK(set_cache.valid);
+}
+
+TEST_CASE("apply_runtime_firewall: RulesOnly without a recorded layout reloads the sets") {
+    const Config config = shared_list_config();
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+    FirewallSetCache set_cache;
+
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+
+    CHECK(firewall.applied_modes == std::vector<FirewallApplyMode>{FirewallApplyMode::PreserveSets});
+    CHECK(firewall.loaders["kpbr4_shared"] == 1);
+    // The full apply recorded the layout for the next refresh.
+    CHECK(set_cache.valid);
+}
+
+TEST_CASE("apply_runtime_firewall: RulesOnly after a list change reloads the sets") {
+    Config config = shared_list_config();
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+    FirewallSetCache set_cache;
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::Destructive, &set_cache);
+    firewall.reset_records();
+
+    config.lists->at("only_vpn").ip_cidrs = std::vector<std::string>{"203.0.113.0/24"};
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+
+    CHECK(firewall.applied_modes == std::vector<FirewallApplyMode>{FirewallApplyMode::PreserveSets});
+    CHECK(firewall.entries["kpbr4_only_vpn"] == std::vector<std::string>{"203.0.113.0/24"});
+}
+
+TEST_CASE("apply_runtime_firewall: a backend refusing RulesOnly gets a full PreserveSets apply") {
+    const Config config = shared_list_config();
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+    FirewallSetCache set_cache;
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::Destructive, &set_cache);
+    firewall.reset_records();
+    firewall.refuse_rules_only = true;
+
+    const auto states = apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+
+    CHECK(firewall.applied_modes == std::vector<FirewallApplyMode>{
+                                        FirewallApplyMode::RulesOnly,
+                                        FirewallApplyMode::PreserveSets});
+    CHECK(firewall.loaders["kpbr4_shared"] == 1);
+    CHECK(states.size() == 2);
+}
+
+TEST_CASE("firewall_set_fingerprint: follows list contents, file stamps and IPv6") {
+    char dir_template[] = "/tmp/forest-pbr-fw-runtime-XXXXXX";
+    REQUIRE(mkdtemp(dir_template) != nullptr);
+    const std::filesystem::path dir(dir_template);
+    const auto list_file = dir / "local.txt";
+    {
+        std::ofstream out(list_file);
+        out << "10.9.0.0/16\n";
+    }
+
+    Config config = shared_list_config();
+    ListConfig local;
+    local.file = list_file.string();
+    config.lists->emplace("local", local);
+    config.route->rules->push_back(route_rule({"local"}, "vpn"));
+    CacheManager cache("/nonexistent/cache");
+
+    const auto base = firewall_set_fingerprint(config, cache, false);
+    CHECK(base == firewall_set_fingerprint(config, cache, false));
+    CHECK(base != firewall_set_fingerprint(config, cache, true));
+
+    // Editing the local file changes the static set contents.
+    {
+        std::ofstream out(list_file, std::ios::app);
+        out << "10.10.0.0/16\n";
+    }
+    CHECK(base != firewall_set_fingerprint(config, cache, false));
+
+    // A list no enabled rule references does not matter.
+    const auto with_file_change = firewall_set_fingerprint(config, cache, false);
+    ListConfig unused;
+    unused.ip_cidrs = std::vector<std::string>{"192.0.2.0/24"};
+    config.lists->emplace("unused", unused);
+    CHECK(with_file_change == firewall_set_fingerprint(config, cache, false));
+
+    std::filesystem::remove_all(dir);
 }

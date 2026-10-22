@@ -81,6 +81,14 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+// A RulesOnly apply cannot reuse the live sets (one is missing, has another
+// layout, or the lists changed since they were loaded). Raised before
+// anything is modified; the caller falls back to a PreserveSets apply.
+class FirewallRulesOnlyError : public FirewallError {
+public:
+    using FirewallError::FirewallError;
+};
+
 // Concrete firewall backend selected for runtime use.
 enum class FirewallBackend : uint8_t {
     iptables,
@@ -99,7 +107,13 @@ enum class FirewallApplyMode : uint8_t {
     // Recreate backend-owned firewall state from scratch, including sets.
     Destructive,
     // Refresh chains/rules while preserving existing set contents when possible.
-    PreserveSets
+    PreserveSets,
+    // Rebuild only the chain rules and reuse the live sets as they are: no
+    // list streaming, no `ipset restore`. For refreshes that cannot change
+    // the sets (SIGUSR1, interface events, urltest switches). The backend
+    // first checks that every set the rules use exists with the expected
+    // type, family and timeout, and throws FirewallRulesOnlyError otherwise.
+    RulesOnly
 };
 
 // Abstract firewall interface for managing IP sets and packet marking rules.

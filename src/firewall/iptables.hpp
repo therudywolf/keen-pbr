@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -38,6 +39,9 @@ public:
     // Atomically apply all pending ipsets (via ipset restore) and rules
     // (via iptables-restore / ip6tables-restore), always materializing the
     // KeenPbrTable chain scaffold and PREROUTING jump for diagnostics.
+    // RulesOnly skips the sets entirely (after checking them) and rebuilds
+    // each chain in one iptables-restore transaction, without the window
+    // in which the jump and chain are deleted.
     void apply(FirewallApplyMode mode = FirewallApplyMode::Destructive) override;
     // Destroy all buffered ipsets (ipset destroy) and flush/delete the
     // KeenPbrTable chain from both iptables and ip6tables mangle tables.
@@ -65,6 +69,14 @@ private:
         std::vector<std::string> members; // contained per-list ipset names
     };
 
+    // Layout of one live set as reported by `ipset list -t`.
+    struct LiveSetInfo {
+        std::string type;                  // "hash:net", "list:set", ...
+        std::string family;                // "inet" / "inet6" (hash types)
+        std::optional<uint32_t> timeout;   // present when created with a timeout
+        std::optional<size_t> entries;     // "Number of entries", if reported
+    };
+
     // Describes an iptables/ip6tables rule to be added to KeenPbrTable.
     struct PendingRule {
         std::string set_name; // ipset name to match with --match-set
@@ -89,9 +101,23 @@ private:
         std::vector<PendingListSet>* out_list_sets);
     // Build a complete iptables-restore script for the given protocol and rules.
     // Per-list match rules are consolidated into list:set-backed rules first.
+    // The PREROUTING jump is appended only when `add_prerouting_jump` is set
+    // (a RulesOnly rebuild omits it when the jump is still in place, so it is
+    // not duplicated).
     static std::string build_ipt_script(bool ipv6,
                                         const std::vector<PendingRule>& rules,
-                                        const FirewallGlobalPrefilter& prefilter = {});
+                                        const FirewallGlobalPrefilter& prefilter = {},
+                                        bool add_prerouting_jump = true);
+    // Parse the output of `ipset list -t` (names and headers only).
+    static std::map<std::string, LiveSetInfo> parse_ipset_terse_listing(
+        const std::string& output);
+    // Why the live set cannot back `expected` as is, or std::nullopt if it can.
+    static std::optional<std::string> live_hash_set_mismatch(
+        const std::map<std::string, LiveSetInfo>& live,
+        const PendingSet& expected);
+    // RulesOnly: check every set the rules use, then rebuild the chains.
+    void apply_rules_only(bool effective_ipv6,
+                          const std::vector<PendingListSet>& list_sets);
     // Build early RETURN lines for the global prefilter.
     static std::string build_prefilter_lines(
         const FirewallGlobalPrefilter& prefilter);
@@ -128,6 +154,10 @@ private:
     // Tracked separately so cleanup can destroy them before their member sets
     // (ipset refuses to destroy a set that a list:set still references).
     std::vector<std::string> created_list_sets_;
+
+    // Members each list:set was loaded with by the last full apply. A
+    // RulesOnly apply may reuse a list:set only with exactly these members.
+    std::map<std::string, std::vector<std::string>> applied_list_set_members_;
 
     // Track whether chain + jump rule exist for each protocol
     bool chain_v4_created_ = false;

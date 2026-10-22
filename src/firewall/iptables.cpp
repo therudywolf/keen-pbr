@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <sys/socket.h>
 
@@ -457,15 +458,20 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
 
 std::string IptablesFirewall::build_ipt_script(bool ipv6,
                                                 const std::vector<PendingRule>& rules,
-                                                const FirewallGlobalPrefilter& prefilter) {
+                                                const FirewallGlobalPrefilter& prefilter,
+                                                bool add_prerouting_jump) {
     // Collapse per-list match rules into list:set-backed rules. The list:set
     // ipsets themselves are created in apply(); here only the chain rules
     // (which reference the sets by name) are emitted.
     const std::vector<PendingRule> consolidated = consolidate_rules(rules, nullptr);
 
+    // With --noflush, declaring the chain flushes it if it exists (creates it
+    // otherwise), and the whole table is committed at once.
     std::string s;
-    s += keen_pbr3::format("*mangle\n:{} - [0:0]\n-A PREROUTING -j {}\n",
-                           CHAIN_NAME, CHAIN_NAME);
+    s += keen_pbr3::format("*mangle\n:{} - [0:0]\n", CHAIN_NAME);
+    if (add_prerouting_jump) {
+        s += keen_pbr3::format("-A PREROUTING -j {}\n", CHAIN_NAME);
+    }
     s += build_prefilter_lines(prefilter);
     for (const auto& pr : consolidated) {
         if (pr.ipv6 != ipv6) continue;
@@ -478,11 +484,34 @@ std::string IptablesFirewall::build_ipt_script(bool ipv6,
 }
 
 void IptablesFirewall::apply(FirewallApplyMode mode) {
+    // The buffered sets, elements and rules belong to this apply only. Drop
+    // them on every exit path: after a failed apply they would otherwise be
+    // carried into the next one (duplicate rules, a stale config's rules).
+    struct PendingBuffersReset {
+        IptablesFirewall& firewall;
+        ~PendingBuffersReset() {
+            firewall.pending_sets_.clear();
+            firewall.pending_elements_.clear();
+            firewall.pending_rules_.clear();
+        }
+    } pending_reset{*this};
+
     bool effective_ipv6 = ipv6_enabled();
     if (effective_ipv6 && !ipv6_backend_available()) {
         Logger::instance().error(
             "IPv6 iptables backend is unavailable; skipping IPv6 firewall state and continuing IPv4-only");
         effective_ipv6 = false;
+    }
+
+    // Consolidate per-list match rules into list:set-backed rules. The list:set
+    // definitions are needed here (phase 1) to create the sets; the consolidated
+    // rules themselves are rebuilt by build_ipt_script() in phase 2.
+    std::vector<PendingListSet> pending_list_sets;
+    consolidate_rules(pending_rules_, &pending_list_sets);
+
+    if (mode == FirewallApplyMode::RulesOnly) {
+        apply_rules_only(effective_ipv6, pending_list_sets);
+        return;
     }
 
     if (mode == FirewallApplyMode::Destructive) {
@@ -491,11 +520,6 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
         cleanup_rules_impl();
     }
 
-    // Consolidate per-list match rules into list:set-backed rules. The list:set
-    // definitions are needed here (phase 1) to create the sets; the consolidated
-    // rules themselves are rebuilt by build_ipt_script() in phase 2.
-    std::vector<PendingListSet> pending_list_sets;
-    consolidate_rules(pending_rules_, &pending_list_sets);
     created_list_sets_.clear();
 
     // Phase 1: ipsets via 'ipset restore -exist'
@@ -525,8 +549,14 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
                 ipset_script += elements;
             }
         }
+        // A failed restore can leave a list:set half refilled: record the
+        // members only once the batch went through.
+        applied_list_set_members_.clear();
         if (!ipset_script.empty()) {
             pipe_to_cmd({"ipset", "restore", "-exist"}, ipset_script);
+        }
+        for (const auto& pls : pending_list_sets) {
+            applied_list_set_members_[pls.name] = pls.members;
         }
     }
 
@@ -550,11 +580,139 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
                     build_ipt_script(true, pending_rules_, global_prefilter_));
         chain_v6_created_ = true;
     }
+}
 
-    // Clear pending buffers
-    pending_sets_.clear();
-    pending_elements_.clear();
-    pending_rules_.clear();
+std::map<std::string, IptablesFirewall::LiveSetInfo>
+IptablesFirewall::parse_ipset_terse_listing(const std::string& output) {
+    // Records look like:
+    //   Name: kpbr4d_youtube
+    //   Type: hash:net
+    //   Header: family inet hashsize 1024 maxelem 65536 timeout 600
+    //   Number of entries: 3
+    std::map<std::string, LiveSetInfo> sets;
+    LiveSetInfo* current = nullptr;
+    std::istringstream stream(output);
+    std::string line;
+    const auto value_of = [&line](const std::string& prefix) -> std::optional<std::string> {
+        if (line.rfind(prefix, 0) != 0) {
+            return std::nullopt;
+        }
+        std::string value = line.substr(prefix.size());
+        while (!value.empty() && (value.back() == '\r' || value.back() == ' ')) {
+            value.pop_back();
+        }
+        return value;
+    };
+    while (std::getline(stream, line)) {
+        if (const auto name = value_of("Name: ")) {
+            current = &sets[*name];
+            continue;
+        }
+        if (current == nullptr) {
+            continue;
+        }
+        if (const auto type = value_of("Type: ")) {
+            current->type = *type;
+        } else if (const auto header = value_of("Header: ")) {
+            std::istringstream tokens(*header);
+            std::string key;
+            std::string value;
+            while (tokens >> key) {
+                if (key == "family" && tokens >> value) {
+                    current->family = value;
+                } else if (key == "timeout" && tokens >> value) {
+                    try {
+                        current->timeout = static_cast<uint32_t>(std::stoul(value));
+                    } catch (...) {
+                        current->timeout.reset();
+                    }
+                }
+            }
+        } else if (const auto entries = value_of("Number of entries: ")) {
+            try {
+                current->entries = static_cast<size_t>(std::stoul(*entries));
+            } catch (...) {
+                current->entries.reset();
+            }
+        }
+    }
+    return sets;
+}
+
+std::optional<std::string> IptablesFirewall::live_hash_set_mismatch(
+    const std::map<std::string, LiveSetInfo>& live,
+    const PendingSet& expected) {
+    const auto it = live.find(expected.name);
+    if (it == live.end()) {
+        return "set " + expected.name + " is missing";
+    }
+    const LiveSetInfo& info = it->second;
+    if (info.type != "hash:net") {
+        return "set " + expected.name + " has type " + info.type;
+    }
+    if (info.family != expected.family_str) {
+        return "set " + expected.name + " has family " + info.family;
+    }
+    const bool timeout_ok = expected.timeout > 0
+        ? info.timeout.has_value() && *info.timeout == expected.timeout
+        : !info.timeout.has_value() || *info.timeout == 0;
+    if (!timeout_ok) {
+        return "set " + expected.name + " has a different timeout";
+    }
+    return std::nullopt;
+}
+
+void IptablesFirewall::apply_rules_only(bool effective_ipv6,
+                                        const std::vector<PendingListSet>& list_sets) {
+    // Preflight, before anything is touched: every set the new rules use must
+    // already exist with the expected layout. One terse listing covers all.
+    const auto listing = safe_exec_capture({"ipset", "list", "-t"}, /*suppress_stderr=*/true);
+    if (listing.exit_code != 0 || listing.truncated) {
+        throw FirewallRulesOnlyError("cannot list the live ipsets");
+    }
+    const auto live = parse_ipset_terse_listing(listing.stdout_output);
+
+    for (const auto& ps : pending_sets_) {
+        if (ps.family_str == "inet6" && !effective_ipv6) {
+            continue;
+        }
+        if (const auto mismatch = live_hash_set_mismatch(live, ps)) {
+            throw FirewallRulesOnlyError(*mismatch);
+        }
+    }
+    for (const auto& pls : list_sets) {
+        const auto applied = applied_list_set_members_.find(pls.name);
+        if (applied == applied_list_set_members_.end() || applied->second != pls.members) {
+            throw FirewallRulesOnlyError("list:set " + pls.name + " needs other members");
+        }
+        const auto it = live.find(pls.name);
+        if (it == live.end() || it->second.type != "list:set" ||
+            (it->second.entries.has_value() && *it->second.entries != pls.members.size())) {
+            throw FirewallRulesOnlyError("list:set " + pls.name + " is missing or changed");
+        }
+    }
+    if (!pending_elements_.empty()) {
+        throw FirewallRulesOnlyError("set elements were queued; refusing to change sets");
+    }
+
+    // Rebuild each family's chain in one iptables-restore transaction: the
+    // chain is flushed and refilled atomically, so there is no moment without
+    // rules (the full path deletes the jump and the chain first). The jump
+    // is added only when NDM's rebuild removed it, never duplicated.
+    const auto restore_family = [this](bool ipv6) {
+        const std::string iptables = ipv6 ? "ip6tables" : "iptables";
+        const bool jump_present =
+            safe_exec({iptables, "-t", "mangle", "-C", "PREROUTING", "-j", CHAIN_NAME},
+                      /*suppress_output=*/true) == 0;
+        pipe_to_cmd({iptables + "-restore", "--noflush", "--counters"},
+                    build_ipt_script(ipv6, pending_rules_, global_prefilter_, !jump_present));
+    };
+    restore_family(false);
+    chain_v4_created_ = true;
+    if (effective_ipv6) {
+        restore_family(true);
+        chain_v6_created_ = true;
+    }
 }
 
 void IptablesFirewall::cleanup_rules_impl() {
@@ -592,6 +750,7 @@ void IptablesFirewall::cleanup_live_impl() {
         safe_exec({"ipset", "destroy", name}, /*suppress_output=*/true);
     }
     created_list_sets_.clear();
+    applied_list_set_members_.clear();
 
     // Destroy all created per-list ipsets
     for (const auto& [name, _] : created_sets_) {

@@ -25,6 +25,7 @@
 #include "../routing/policy_rule.hpp"
 #include "../routing/route_table.hpp"
 #include "../firewall/firewall.hpp"
+#include "../firewall/firewall_runtime.hpp"
 #include "../util/blocking_executor.hpp"
 #include "../util/traced_mutex.hpp"
 #include "list_service.hpp"
@@ -184,6 +185,9 @@ private:
     // lifecycle and runtime apply
     void setup_static_routing();
     void apply_firewall(FirewallApplyMode mode = FirewallApplyMode::Destructive);
+    // Mode for refreshes that cannot change the list sets (SIGUSR1, interface
+    // events, urltest switches): RulesOnly on iptables, PreserveSets otherwise.
+    FirewallApplyMode runtime_refresh_firewall_mode() const;
     void download_uncached_lists();
     void register_urltest_outbounds();
     void handle_urltest_selection_change(const std::string& urltest_tag,
@@ -407,6 +411,9 @@ private:
     RouteTable route_table_;
     PolicyRuleManager policy_rules_;
     FirewallState firewall_state_;
+    // What the last full firewall apply loaded into the list sets; lets a
+    // RulesOnly refresh skip streaming every list into `ipset restore`.
+    FirewallSetCache firewall_set_cache_;
     URLTester url_tester_;
     OutboundMarkMap outbound_marks_;
     std::unique_ptr<Scheduler> scheduler_;

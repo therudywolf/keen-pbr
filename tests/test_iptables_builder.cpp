@@ -8,6 +8,8 @@
 
 #include <sstream>
 #include <iomanip>
+#include <map>
+#include <optional>
 #include <string>
 #include <set>
 #include <array>
@@ -60,9 +62,37 @@ public:
     return IptablesFirewall::build_list_set_lines(pls);
   }
 
+  static std::optional<std::string> hash_set_mismatch(const std::string &listing,
+                                                      const std::string &name,
+                                                      const std::string &family,
+                                                      uint32_t timeout) {
+    IptablesFirewall::PendingSet ps;
+    ps.name = name;
+    ps.family_str = family;
+    ps.timeout = timeout;
+    return IptablesFirewall::live_hash_set_mismatch(
+        IptablesFirewall::parse_ipset_terse_listing(listing), ps);
+  }
+
+  struct LiveSet {
+    std::string type;
+    std::string family;
+    std::optional<uint32_t> timeout;
+    std::optional<size_t> entries;
+  };
+
+  static std::map<std::string, LiveSet> parse_terse(const std::string &listing) {
+    std::map<std::string, LiveSet> out;
+    for (const auto &[name, info] : IptablesFirewall::parse_ipset_terse_listing(listing)) {
+      out[name] = LiveSet{info.type, info.family, info.timeout, info.entries};
+    }
+    return out;
+  }
+
   static std::string build_ipt_script(bool ipv6,
                                       const std::vector<RuleDesc> &descs,
-                                      FirewallGlobalPrefilter prefilter = {}) {
+                                      FirewallGlobalPrefilter prefilter = {},
+                                      bool add_prerouting_jump = true) {
     std::vector<IptablesFirewall::PendingRule> rules;
     rules.reserve(descs.size());
     for (const auto &d : descs) {
@@ -82,7 +112,7 @@ public:
       }
       rules.push_back(std::move(pr));
     }
-    return IptablesFirewall::build_ipt_script(ipv6, rules, prefilter);
+    return IptablesFirewall::build_ipt_script(ipv6, rules, prefilter, add_prerouting_jump);
   }
 
   static std::string build_ipt_script_for_rule(bool ipv6,
@@ -1329,3 +1359,84 @@ bool pairwise_is_complete(const std::vector<PairwiseIndex> &cases) {
 }
 
 } // namespace
+
+// =============================================================================
+// RulesOnly: live set preflight and in-place chain rebuild
+// =============================================================================
+
+namespace {
+
+const char* kTerseListing =
+    "Name: kpbr4_static\n"
+    "Type: hash:net\n"
+    "Revision: 6\n"
+    "Header: family inet hashsize 1024 maxelem 65536\n"
+    "Size in memory: 1048\n"
+    "References: 1\n"
+    "Number of entries: 12\n"
+    "\n"
+    "Name: kpbr4d_domains\n"
+    "Type: hash:net\n"
+    "Revision: 6\n"
+    "Header: family inet hashsize 1024 maxelem 65536 timeout 600 bucketsize 12 initval 0x5a1d\n"
+    "Size in memory: 2024\n"
+    "References: 1\n"
+    "Number of entries: 3\n"
+    "\n"
+    "Name: kpbr6_static\n"
+    "Type: hash:net\n"
+    "Revision: 6\n"
+    "Header: family inet6 hashsize 1024 maxelem 65536\n"
+    "Number of entries: 0\n"
+    "\n"
+    "Name: kpbrm_0\n"
+    "Type: list:set\n"
+    "Revision: 3\n"
+    "Header: size 11\n"
+    "Number of entries: 2\n"
+    "\n"
+    "Name: _NDM_BFD_TMP\n"
+    "Type: hash:ip\n"
+    "Header: family inet hashsize 1024 maxelem 65536 timeout 300\n";
+
+} // namespace
+
+TEST_CASE("parse_ipset_terse_listing: names, types, families, timeouts and entries") {
+  const auto sets = T::parse_terse(kTerseListing);
+  REQUIRE(sets.size() == 5);
+  CHECK(sets.at("kpbr4_static").type == "hash:net");
+  CHECK(sets.at("kpbr4_static").family == "inet");
+  CHECK_FALSE(sets.at("kpbr4_static").timeout.has_value());
+  CHECK(sets.at("kpbr4_static").entries == std::optional<size_t>{12});
+  CHECK(sets.at("kpbr4d_domains").timeout == std::optional<uint32_t>{600});
+  CHECK(sets.at("kpbr6_static").family == "inet6");
+  CHECK(sets.at("kpbrm_0").type == "list:set");
+  CHECK(sets.at("kpbrm_0").entries == std::optional<size_t>{2});
+  CHECK(sets.at("_NDM_BFD_TMP").type == "hash:ip");
+}
+
+TEST_CASE("live_hash_set_mismatch: only the expected layout may be reused") {
+  CHECK_FALSE(T::hash_set_mismatch(kTerseListing, "kpbr4_static", "inet", 0).has_value());
+  CHECK_FALSE(T::hash_set_mismatch(kTerseListing, "kpbr4d_domains", "inet", 600).has_value());
+  CHECK_FALSE(T::hash_set_mismatch(kTerseListing, "kpbr6_static", "inet6", 0).has_value());
+
+  CHECK(T::hash_set_mismatch(kTerseListing, "kpbr4_gone", "inet", 0).has_value());
+  CHECK(T::hash_set_mismatch(kTerseListing, "kpbr4d_domains", "inet", 300).has_value());
+  CHECK(T::hash_set_mismatch(kTerseListing, "kpbr4_static", "inet", 600).has_value());
+  CHECK(T::hash_set_mismatch(kTerseListing, "kpbr6_static", "inet", 0).has_value());
+  CHECK(T::hash_set_mismatch(kTerseListing, "kpbrm_0", "inet", 0).has_value());
+}
+
+TEST_CASE("build_ipt_script: rules-only rebuild keeps an existing PREROUTING jump") {
+  const auto with_jump = T::build_ipt_script(false, {mark_rule("kpbr4_a", false, 0x10000)});
+  const auto without_jump =
+      T::build_ipt_script(false, {mark_rule("kpbr4_a", false, 0x10000)}, {}, false);
+
+  CHECK(with_jump.find("-A PREROUTING -j KeenPbrTable\n") != std::string::npos);
+  CHECK(without_jump.find("PREROUTING") == std::string::npos);
+  // The chain is still declared, so --noflush flushes and refills it in the
+  // same transaction.
+  CHECK(without_jump.rfind("*mangle\n:KeenPbrTable - [0:0]\n", 0) == 0);
+  CHECK(without_jump.find("--match-set kpbr4_a dst") != std::string::npos);
+  CHECK(without_jump.find("COMMIT\n") != std::string::npos);
+}

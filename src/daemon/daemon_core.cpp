@@ -470,7 +470,10 @@ void Daemon::refresh_iproute_and_firewall_runtime() {
         route_table_.clear();
         policy_rules_.clear();
         setup_static_routing();
-        apply_firewall(FirewallApplyMode::PreserveSets);
+        // NDM rebuilt its tables (or a link changed): the chain rules need
+        // re-asserting, the list sets do not. RulesOnly falls back to a full
+        // PreserveSets reload on any doubt about the live sets.
+        apply_firewall(runtime_refresh_firewall_mode());
         publish_runtime_state();
         log.info("Runtime iproute and firewall refresh complete.");
         // Whatever is still pending was requested before this refresh read
@@ -481,8 +484,8 @@ void Daemon::refresh_iproute_and_firewall_runtime() {
         log.error("Runtime iproute and firewall refresh failed: {}", e.what());
     }
     // NOTE: deliberately NO conntrack flush here. This path runs on every NDM
-    // netfilter event (via the netfilter.d hook -> SIGUSR1) and uses
-    // FirewallApplyMode::PreserveSets — ipset membership is unchanged, so no
+    // netfilter event (via the netfilter.d hook -> SIGUSR1) and keeps the
+    // sets (RulesOnly / PreserveSets) — ipset membership is unchanged, so no
     // routing decision changed and there are no stale flows to invalidate.
     // Flushing here would walk the whole conntrack table + rebuild the ipset
     // snapshot on every netfilter event, which is exactly the load a weak
@@ -846,7 +849,10 @@ void Daemon::shutdown_runtime() {
     guarded("scheduler", [this]() { scheduler_->cancel_all(); });
     guarded("route-table", [this]() { route_table_.clear(); });
     guarded("policy-rules", [this]() { policy_rules_.clear(); });
-    guarded("firewall", [this]() { firewall_->cleanup(); });
+    guarded("firewall", [this]() {
+        firewall_->cleanup();
+        firewall_set_cache_.invalidate();
+    });
     guarded("pid-file", [this]() { remove_pid_file(); });
 }
 

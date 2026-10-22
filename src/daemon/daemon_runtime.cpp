@@ -85,6 +85,7 @@ void Daemon::stop_routing_runtime() {
     route_table_.clear();
     policy_rules_.clear();
     firewall_->cleanup();
+    firewall_set_cache_.invalidate();
     if (keenetic_dns_refresh_task_id_ >= 0) {
         scheduler_->cancel(keenetic_dns_refresh_task_id_);
         keenetic_dns_refresh_task_id_ = -1;
@@ -167,7 +168,17 @@ void Daemon::apply_firewall(FirewallApplyMode mode) {
         firewall_state_.get_urltest_selections(),
         list_service_.cache_manager(),
         *firewall_,
-        mode));
+        mode,
+        &firewall_set_cache_));
+}
+
+FirewallApplyMode Daemon::runtime_refresh_firewall_mode() const {
+    // The netfilter hook fires on every NDM rebuild (UPnP: about once a
+    // minute). Reloading every list into `ipset restore` each time is the
+    // load a weak MT7621 cannot afford; the sets are untouched by NDM.
+    return firewall_->backend() == FirewallBackend::iptables
+        ? FirewallApplyMode::RulesOnly
+        : FirewallApplyMode::PreserveSets;
 }
 
 void Daemon::download_uncached_lists() {
@@ -220,7 +231,8 @@ void Daemon::handle_urltest_selection_change(const std::string& urltest_tag,
             route_table_.clear();
             policy_rules_.clear();
             setup_static_routing();
-            apply_firewall(FirewallApplyMode::PreserveSets);
+            // Only the marks of the group's rules change: the sets stay.
+            apply_firewall(runtime_refresh_firewall_mode());
             publish_runtime_state();
             log.info("Routing and firewall rebuilt after urltest change.");
         } catch (const std::exception& e) {
