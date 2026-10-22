@@ -245,6 +245,64 @@ download_lists() {
     "$KEEN_PBR" --config "$CONFIG" download || true
 }
 
+# Boot-time detach (local patch 2026-10-21).
+#
+# At boot NDM runs rc.unslung from its "Opkg task queue" thread while holding
+# the OPTWARE lock, and kills the whole "Opkg shell" process group if the
+# script does not finish within ~120s. reapply_dnsmasq_config calls
+# `forest-pbr generate-resolver-config`, which queries RCI
+# /rci/show/dns-proxy; answering that needs DNS locks NDM cannot take while
+# the Opkg thread is waiting on us, so the start sequence stalls until the
+# timeout fires and the already-running daemon gets killed with the group.
+#
+# When started by rc.unslung we therefore only probe RCI (to record whether
+# the stall is present) and re-launch the start sequence in its own session
+# via start-stop-daemon -b, letting rc.unslung return immediately.
+BOOT_LOG="/opt/var/log/forest-pbr-boot.log"
+
+boot_log() {
+    printf '%s up=%s %s\n' "$(date '+%F %T')" "$(cut -d' ' -f1 /proc/uptime)" "$1" >> "$BOOT_LOG"
+}
+
+launched_from_opkg_initrc() {
+    [ -z "$FOREST_PBR_DETACHED" ] || return 1
+    # rc.unslung runs init scripts as child processes: find hands it full
+    # paths, which its `S* | *.sh` sourcing branch never matches. So look at
+    # the parent; $0 still covers a caller that sources this file instead.
+    tr '\0' ' ' 2>/dev/null < "/proc/$PPID/cmdline" | grep -q 'rc\.unslung' && return 0
+    case "$0" in
+        *rc.unslung*) return 0 ;;
+    esac
+    return 1
+}
+
+probe_rci() {
+    local endpoint="$1"
+    local code
+
+    code="$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:79/rci/$endpoint" 2>/dev/null)"
+    boot_log "rci probe $endpoint: curl rc=$? http=$code"
+}
+
+detach_boot_start() {
+    mkdir -p "$(dirname "$BOOT_LOG")" 2>/dev/null || true
+    [ -f "$BOOT_LOG" ] && tail -n 200 "$BOOT_LOG" > "$BOOT_LOG.tmp" && mv "$BOOT_LOG.tmp" "$BOOT_LOG"
+    boot_log "=== $1 from rc.unslung, detaching"
+    probe_rci show/version
+    probe_rci show/dns-proxy
+    FOREST_PBR_DETACHED=1 start-stop-daemon -S -b -n forest-pbr-boot \
+        -x /opt/bin/sh -- /opt/etc/init.d/S80forest-pbr "$1"
+    log "Start sequence detached from rc.unslung (see $BOOT_LOG)"
+}
+
+reapply_dnsmasq_config_logged() {
+    boot_log "reapply_dnsmasq_config begin"
+    reapply_dnsmasq_config
+    boot_log "reapply_dnsmasq_config end rc=$?"
+}
+
+FOREST_PBR_SKIP_RC_FUNC=no
+
 case "$1" in
     reload)
         reapply_dnsmasq_config || exit 1
@@ -260,13 +318,25 @@ case "$1" in
         exit $?
         ;;
     start|restart|restartall)
-        prepare_start
-        download_lists
-        POSTCMD="reapply_dnsmasq_config"
+        if launched_from_opkg_initrc; then
+            detach_boot_start "$1"
+            FOREST_PBR_SKIP_RC_FUNC=yes
+        elif [ -n "$FOREST_PBR_DETACHED" ]; then
+            boot_log "detached start: prepare_start"
+            prepare_start
+            boot_log "detached start: download_lists"
+            download_lists
+            boot_log "detached start: launching daemon"
+            POSTCMD="reapply_dnsmasq_config_logged"
+        else
+            prepare_start
+            download_lists
+            POSTCMD="reapply_dnsmasq_config"
+        fi
         ;;
     stop|kill)
         prepare_stop
         ;;
 esac
 
-. /opt/etc/init.d/rc.func
+[ "$FOREST_PBR_SKIP_RC_FUNC" = yes ] || . /opt/etc/init.d/rc.func
