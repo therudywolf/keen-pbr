@@ -21,6 +21,9 @@ struct FirewallSetCache {
     std::string fingerprint;
     // Per-list set layout (static/dynamic sets, dynamic timeout).
     std::map<std::string, ListSetUsage> usage;
+    // Why the last RulesOnly attempt fell back to PreserveSets; a repeat of
+    // the same reason (a refresh every minute) is not warned about again.
+    std::string last_rules_only_fallback;
 
     void invalidate() {
         valid = false;

@@ -394,14 +394,31 @@ std::vector<RuleState> apply_runtime_firewall(
     }
 
     try {
-        return apply_runtime_firewall_impl(config, outbound_marks, urltest_selections,
-                                           cache_manager, firewall,
-                                           FirewallApplyMode::RulesOnly, set_cache);
+        auto rule_states = apply_runtime_firewall_impl(config, outbound_marks, urltest_selections,
+                                                       cache_manager, firewall,
+                                                       FirewallApplyMode::RulesOnly, set_cache);
+        if (set_cache != nullptr) {
+            set_cache->last_rules_only_fallback.clear();
+        }
+        return rule_states;
     } catch (const std::exception& e) {
         // Any doubt about the live sets: reload them along with the rules.
-        Logger::instance().warn("Firewall rules-only refresh not possible ({}); "
-                                "reloading the sets as well",
-                                e.what());
+        // A cause that persists (say `ipset list -t` is unsupported) would
+        // otherwise warn on every SIGUSR1, about once a minute.
+        const std::string reason = e.what();
+        const bool repeated = set_cache != nullptr && set_cache->last_rules_only_fallback == reason;
+        if (repeated) {
+            Logger::instance().verbose("Firewall rules-only refresh not possible ({}); "
+                                       "reloading the sets as well",
+                                       reason);
+        } else {
+            Logger::instance().warn("Firewall rules-only refresh not possible ({}); "
+                                    "reloading the sets as well",
+                                    reason);
+        }
+        if (set_cache != nullptr) {
+            set_cache->last_rules_only_fallback = reason;
+        }
     }
     return apply_runtime_firewall_impl(config, outbound_marks, urltest_selections,
                                        cache_manager, firewall,

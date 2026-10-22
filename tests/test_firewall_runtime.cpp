@@ -3,6 +3,7 @@
 #include "../src/cache/cache_manager.hpp"
 #include "../src/firewall/firewall_runtime.hpp"
 #include "../src/lists/list_entry_visitor.hpp"
+#include "../src/log/logger.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -351,4 +352,49 @@ TEST_CASE("build_firewall_rule_criteria: selectors as the apply installs them") 
     REQUIRE(states.size() == 2);
     CHECK(states[0].criteria.proto == L4Proto::Tcp);
     CHECK(states[0].criteria.dst_port.to_iptables_string() == "443");
+}
+
+TEST_CASE("apply_runtime_firewall: a repeated rules-only fallback is warned about once") {
+    const Config config = shared_list_config();
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+    FirewallSetCache set_cache;
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::Destructive, &set_cache);
+
+    std::vector<std::string> lines;
+    const LogLevel previous_level = Logger::instance().level();
+    Logger::instance().set_level(LogLevel::info);
+    Logger::instance().set_sink([&lines](const std::string& line) { lines.push_back(line); });
+    const auto warnings = [&lines]() {
+        int count = 0;
+        for (const auto& line : lines) {
+            if (line.find("rules-only refresh not possible") != std::string::npos) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    firewall.refuse_rules_only = true;
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+    const int after_repeats = warnings();
+
+    // Once RulesOnly works again, a later failure is news again.
+    firewall.refuse_rules_only = false;
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+    firewall.refuse_rules_only = true;
+    (void)apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::RulesOnly, &set_cache);
+    const int after_recovery = warnings();
+
+    Logger::instance().clear_sink();
+    Logger::instance().set_level(previous_level);
+    CHECK(after_repeats == 1);
+    CHECK(after_recovery == 2);
 }
