@@ -278,6 +278,20 @@ void Daemon::setup_api() {
         [this](const Config& config) {
             validate_config(config);
 
+            // The running daemon holds a lock on its PID file; the init script
+            // and the netfilter hook signal it through that path. Moving it
+            // at runtime would leave them signalling a stale file.
+            const auto active_pid_file = config_store_.active_config()
+                .daemon.value_or(DaemonConfig{}).pid_file.value_or("");
+            const auto candidate_pid_file = config.daemon.value_or(DaemonConfig{})
+                .pid_file.value_or("");
+            if (candidate_pid_file != active_pid_file) {
+                throw ConfigValidationError(std::vector<ConfigValidationIssue>{{
+                    "daemon.pid_file",
+                    "daemon.pid_file cannot be changed while the daemon is running",
+                }});
+            }
+
             const auto marks = allocate_outbound_marks(
                 config.fwmark.value_or(FwmarkConfig{}),
                 config.outbounds.value_or(std::vector<Outbound>{}));

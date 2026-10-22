@@ -38,6 +38,7 @@ add_executable(keen-pbr-tests
   test_log_file_sink.cpp
   test_port_spec_util.cpp
   test_guarded_invoke.cpp
+  test_pid_file.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
   ../src/config/config_writer.cpp
@@ -73,6 +74,7 @@ add_executable(keen-pbr-tests
   ../src/config/list_parser.cpp
   ../src/cmd/test_routing.cpp
   ../src/daemon/list_service.cpp
+  ../src/daemon/pid_file.cpp
   ../src/daemon/resolver_health.cpp
   ../src/http/http_client.cpp
   ../src/routing/netlink.cpp

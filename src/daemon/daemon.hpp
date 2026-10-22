@@ -27,6 +27,7 @@
 #include "../util/blocking_executor.hpp"
 #include "../util/traced_mutex.hpp"
 #include "list_service.hpp"
+#include "pid_file.hpp"
 #include "runtime_state_store.hpp"
 #include "system_resolver_hook.hpp"
 
@@ -308,7 +309,7 @@ private:
     // fd number that was closed (and possibly recycled) mid-batch.
     std::unordered_set<int> retired_fds_;
 
-    int pid_file_fd_{-1};
+    PidFile pid_file_;
     int control_fd_{-1};
     struct ControlTask {
         std::function<void()> callback;
