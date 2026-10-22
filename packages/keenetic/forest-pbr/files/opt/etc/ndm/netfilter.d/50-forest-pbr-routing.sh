@@ -7,7 +7,7 @@
 # forest-pbr's PBR marks never fire and LAN clients get routed via default WAN
 # (i.e. RKN-blocked for sites that need the VPN outbound). Keep this BEFORE the
 # table guard below so the watchdog fires for every netfilter event, not just
-# mangle/nat ones.
+# mangle ones.
 #
 # Hot-path cost: two sysctl reads; sysctl -w is skipped when already zero.
 for _key in net.ipv4.netfilter.ip_conntrack_fastnat net.netfilter.nf_conntrack_fastnat; do
@@ -20,11 +20,13 @@ for _key in net.ipv4.netfilter.ip_conntrack_fastnat net.netfilter.nf_conntrack_f
 done
 unset _key _val
 
-# Firewall reapply is only relevant when NDM touched mangle/nat — those are the
-# tables forest-pbr writes to. A filter-table rebuild doesn't disturb our marks
-# or NAT rules, so skip the SIGUSR1 in that case to avoid pointless work.
-if [ "$table" = "mangle" ] || [ "$table" = "nat" ]; then
-    logger -t "forest-pbr" "Refreshing routing state after netfilter change (table=$table)"
+# NDM calls this hook after it rebuilt one table: $type is iptables or
+# ip6tables, $table the table. forest-pbr only writes the mangle table (its
+# KeenPbrTable chain and the PREROUTING jump, IPv4 and IPv6), so only a mangle
+# rebuild can have dropped its rules. Rebuilds of nat (UPnP, about once a
+# minute) and filter leave them alone and no longer cost a full refresh.
+if [ "$table" = "mangle" ]; then
+    logger -t "forest-pbr" "Refreshing routing state after netfilter change (type=$type table=$table)"
     /opt/etc/init.d/S80forest-pbr reapply-firewall >/dev/null 2>&1 || true
 fi
 
