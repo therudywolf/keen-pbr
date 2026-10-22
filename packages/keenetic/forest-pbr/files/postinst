@@ -52,6 +52,21 @@ echo "-----------------------"
 
 mkdir -p /opt/usr/lib/forest-pbr
 
+# dnsmasq.conf already loads forest-pbr's conf-script inside the managed block
+# (a reinstall or an upgrade): nothing to offer. A config migrated from
+# keen-pbr keeps keen-pbr's wording on the notice line, so only the markers
+# and the conf-script line are compared.
+has_forest_pbr_managed_block() {
+    [ -f "$DNSMASQ_CONF" ] || return 1
+
+    awk '
+        $0 == "# BEGIN forest-pbr managed block" { inside = 1; next }
+        $0 == "# END forest-pbr managed block" { inside = 0; next }
+        inside && $0 == "conf-script=/opt/usr/lib/forest-pbr/dnsmasq.sh dnsmasq-config-entry" { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "$DNSMASQ_CONF"
+}
+
 answer=""
 if [ -f "$DNSMASQ_TEMPLATE" ]; then
     if [ -n "${FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS:-}" ]; then
@@ -59,6 +74,8 @@ if [ -f "$DNSMASQ_TEMPLATE" ]; then
     elif [ -n "${KEEN_PBR_REPLACE_DNSMASQ_DEFAULTS:-}" ]; then
         # Backward-compatible env var name (legacy keen-pbr automation).
         answer="$KEEN_PBR_REPLACE_DNSMASQ_DEFAULTS"
+    elif has_forest_pbr_managed_block; then
+        echo "$DNSMASQ_CONF already loads forest-pbr; keeping it."
     elif [ -t 0 ] && [ -t 1 ]; then
         echo "Tip: set FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS=Y or N to automate forest-pbr installation."
         while :; do
@@ -98,7 +115,9 @@ case "$answer" in
 esac
 
 echo ""
-/opt/etc/init.d/S80forest-pbr start || echo "Failed to start forest-pbr service"
+# restart, not start: when the old package's prerm could not stop its daemon,
+# start would report "already running" and leave the old binary serving.
+/opt/etc/init.d/S80forest-pbr restart || echo "Failed to start forest-pbr service"
 echo ""
 
 echo "Installation complete!"

@@ -43,12 +43,26 @@ echo "----------------------------------"
 
 mkdir -p /opt/usr/lib/forest-pbr
 
+# dnsmasq.conf already loads forest-pbr (see postinst comment for rationale).
+has_forest_pbr_managed_block() {
+    [ -f "$DNSMASQ_CONF" ] || return 1
+
+    awk '
+        $0 == "# BEGIN forest-pbr managed block" { inside = 1; next }
+        $0 == "# END forest-pbr managed block" { inside = 0; next }
+        inside && $0 == "conf-script=/opt/usr/lib/forest-pbr/dnsmasq.sh dnsmasq-config-entry" { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "$DNSMASQ_CONF"
+}
+
 answer=""
 if [ -f "$DNSMASQ_TEMPLATE" ]; then
     if [ -n "${FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS:-}" ]; then
         answer="$FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS"
     elif [ -n "${KEEN_PBR_REPLACE_DNSMASQ_DEFAULTS:-}" ]; then
         answer="$KEEN_PBR_REPLACE_DNSMASQ_DEFAULTS"
+    elif has_forest_pbr_managed_block; then
+        echo "$DNSMASQ_CONF already loads forest-pbr; keeping it."
     elif [ -t 0 ] && [ -t 1 ]; then
         echo "Tip: set FOREST_PBR_REPLACE_DNSMASQ_DEFAULTS=Y or N to automate forest-pbr installation."
         while :; do
@@ -88,7 +102,8 @@ case "$answer" in
 esac
 
 echo ""
-/opt/etc/init.d/S80forest-pbr start || echo "Failed to start forest-pbr service"
+# restart, not start (see postinst comment for rationale).
+/opt/etc/init.d/S80forest-pbr restart || echo "Failed to start forest-pbr service"
 echo ""
 
 echo "Installation complete!"
