@@ -257,6 +257,53 @@ TEST_CASE("compute_test_routing resolves domain through configured system resolv
     std::filesystem::remove_all(temp_dir);
 }
 
+TEST_CASE("compute_test_routing checks many addresses concurrently, keeping their order") {
+    if (!udp_socket_available()) {
+        DOCTEST_INFO("UDP sockets unavailable in current environment");
+        return;
+    }
+
+    const auto temp_dir = make_temp_dir();
+    CacheManager cache(temp_dir);
+    cache.ensure_dir();
+
+    const std::vector<std::string> v4{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4",
+                                      "10.0.0.5", "10.0.0.6"};
+    const std::vector<std::string> v6{"2001:db8::1", "2001:db8::2"};
+    TestDnsServer server(v4, v6);
+
+    Config config = build_test_config();
+    api::SystemResolver system_resolver;
+    system_resolver.address = server.address();
+    config.dns->system_resolver = system_resolver;
+    ListConfig work;
+    work.ip_cidrs = std::vector<std::string>{"10.0.0.4/32"};
+    config.lists->emplace("work", work);
+    RouteRule rule;
+    rule.outbound = "vpn";
+    rule.list = std::vector<std::string>{"work"};
+    RouteConfig route;
+    route.rules = std::vector<RouteRule>{rule};
+    config.route = route;
+
+    const auto result = compute_test_routing(config, cache, "many.example.com");
+
+    std::vector<std::string> expected_order = v4;
+    expected_order.insert(expected_order.end(), v6.begin(), v6.end());
+    REQUIRE(result.resolved_ips == expected_order);
+    REQUIRE(result.entries.size() == expected_order.size());
+    REQUIRE(result.rule_diagnostics.size() == 1);
+    REQUIRE(result.rule_diagnostics[0].ip_rows.size() == expected_order.size());
+    for (size_t i = 0; i < expected_order.size(); ++i) {
+        CHECK(result.entries[i].ip == expected_order[i]);
+        CHECK(result.rule_diagnostics[0].ip_rows[i].ip == expected_order[i]);
+        CHECK(result.entries[i].expected_outbound ==
+              (expected_order[i] == "10.0.0.4" ? "vpn" : "(default)"));
+    }
+
+    std::filesystem::remove_all(temp_dir);
+}
+
 TEST_CASE("compute_test_routing falls back to resolv.conf when system resolver is absent") {
     const auto temp_dir = make_temp_dir();
     CacheManager cache(temp_dir);
