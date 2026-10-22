@@ -32,12 +32,6 @@ namespace keen_pbr3 {
 
 namespace {
 
-// 500 ms gives weak Keenetic routers enough headroom to absorb a burst of
-// netfilter/NDM events before we pay the cost of a full firewall refresh.
-// The handler cancels-and-reschedules on every signal, so a burst collapses
-// into exactly one refresh once the storm settles.
-constexpr auto SIGUSR1_DEBOUNCE_DELAY = std::chrono::milliseconds{500};
-
 std::int64_t steady_duration_ms(std::chrono::steady_clock::time_point started_at) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started_at).count();
@@ -386,30 +380,74 @@ void Daemon::handle_signal() {
 void Daemon::handle_sigusr1() {
     auto& log = Logger::instance();
     log.info("SIGUSR1: scheduling firewall refresh...");
-    schedule_sigusr1_runtime_refresh();
+    // No urltest probe round here: the netfilter hook fires SIGUSR1 on every
+    // NDM netfilter rebuild (UPnP: about once a minute), which says nothing
+    // about the candidates' health. A candidate whose link changes state is
+    // probed at once instead (see handle_interface_state_change).
+    request_runtime_refresh("SIGUSR1");
 }
 
-void Daemon::schedule_sigusr1_runtime_refresh() {
-    if (sigusr1_refresh_task_id_ >= 0) {
-        scheduler_->cancel(sigusr1_refresh_task_id_);
-        sigusr1_refresh_task_id_ = -1;
+void Daemon::request_runtime_refresh(const std::string& reason) {
+    auto& log = Logger::instance();
+    const auto delay = runtime_refresh_coalescer_.on_trigger(std::chrono::steady_clock::now());
+    if (!delay.has_value()) {
+        log.trace("runtime_refresh_coalesced",
+                  "reason={} pending_reason={}",
+                  reason,
+                  runtime_refresh_reason_);
+        return;
     }
 
-    sigusr1_refresh_task_id_ = scheduler_->schedule_oneshot(
-        SIGUSR1_DEBOUNCE_DELAY,
-        [this]() {
-            sigusr1_refresh_task_id_ = -1;
-            Logger::instance().info("SIGUSR1: applying firewall refresh...");
-            refresh_iproute_and_firewall_runtime();
-            // No urltest probe round here: the netlink hook fires SIGUSR1 on
-            // every NDM netfilter rebuild (UPnP: about once a minute), which
-            // says nothing about the candidates' health. Probing every
-            // candidate on each of them only loaded the router. A candidate
-            // whose link changes state is probed at once instead (see
-            // handle_interface_state_change); the rest wait for the interval.
-            Logger::instance().info("SIGUSR1: firewall refresh complete.");
-        },
-        "sigusr1-runtime-refresh");
+    try {
+        runtime_refresh_task_id_ = scheduler_->schedule_oneshot(
+            *delay,
+            [this]() {
+                runtime_refresh_task_id_ = -1;
+                run_coalesced_runtime_refresh();
+            },
+            "runtime-refresh");
+    } catch (const std::exception& e) {
+        // Without the timer the coalescer would wait for it forever and
+        // swallow every later trigger. Callers include the netlink receive
+        // callback, which must not see an exception.
+        runtime_refresh_coalescer_.cancel();
+        log.error("{}: cannot schedule firewall refresh: {}", reason, e.what());
+        return;
+    }
+    runtime_refresh_reason_ = reason;
+    if (*delay > kRuntimeRefreshLeadingDelay) {
+        log.info("{}: refresh coalesced, due in {} ms", reason, delay->count());
+    }
+}
+
+void Daemon::run_coalesced_runtime_refresh() {
+    auto& log = Logger::instance();
+    const std::string reason = runtime_refresh_reason_.empty()
+        ? std::string("runtime refresh")
+        : runtime_refresh_reason_;
+    runtime_refresh_reason_.clear();
+    runtime_refresh_coalescer_.on_refresh_started(std::chrono::steady_clock::now());
+
+    // A stopped runtime must stay stopped: rebuilding here would put the
+    // routes and rules back behind the user's back.
+    if (!routing_runtime_active_) {
+        log.info("{}: routing runtime is stopped, refresh skipped", reason);
+        return;
+    }
+
+    log.info("{}: applying firewall refresh...", reason);
+    refresh_iproute_and_firewall_runtime();
+    runtime_refresh_coalescer_.on_refresh_finished(std::chrono::steady_clock::now());
+}
+
+void Daemon::cancel_pending_runtime_refresh(const char* why) {
+    if (runtime_refresh_task_id_ >= 0) {
+        scheduler_->cancel(runtime_refresh_task_id_);
+        runtime_refresh_task_id_ = -1;
+        Logger::instance().info("Pending refresh ({}) {}", runtime_refresh_reason_, why);
+    }
+    runtime_refresh_coalescer_.cancel();
+    runtime_refresh_reason_.clear();
 }
 
 void Daemon::handle_sighup() {
@@ -432,6 +470,10 @@ void Daemon::refresh_iproute_and_firewall_runtime() {
         apply_firewall(FirewallApplyMode::PreserveSets);
         publish_runtime_state();
         log.info("Runtime iproute and firewall refresh complete.");
+        // Whatever is still pending was requested before this refresh read
+        // the system state, so it is covered. Kept on failure, so the
+        // pending one retries.
+        cancel_pending_runtime_refresh("covered by this refresh");
     } catch (const std::exception& e) {
         log.error("Runtime iproute and firewall refresh failed: {}", e.what());
     }
@@ -491,10 +533,12 @@ void Daemon::handle_interface_state_change(const std::string& interface_name, bo
     // selection may need to change; do not wait for the next interval.
     trigger_urltest_probes_for_interface(interface_name);
 
-    log.info("Interface {} state changed to {}, iproute and firewall refresh triggered",
-             interface_name,
-             is_up ? "UP" : "DOWN");
-    refresh_iproute_and_firewall_runtime();
+    const std::string reason = "Interface " + interface_name + " state changed to " +
+                               (is_up ? "UP" : "DOWN");
+    log.info("{}, iproute and firewall refresh triggered", reason);
+    // Never refresh from inside the netlink receive loop: the refresh runs
+    // iptables-restore for a while, and the socket queue overflows meanwhile.
+    request_runtime_refresh(reason);
 }
 
 void Daemon::handle_interface_monitor_events(uint32_t events) {

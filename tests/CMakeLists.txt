@@ -39,6 +39,7 @@ add_executable(keen-pbr-tests
   test_port_spec_util.cpp
   test_guarded_invoke.cpp
   test_pid_file.cpp
+  test_refresh_coalescer.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
   ../src/config/config_writer.cpp

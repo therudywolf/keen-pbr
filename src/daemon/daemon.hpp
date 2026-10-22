@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -28,6 +29,7 @@
 #include "../util/traced_mutex.hpp"
 #include "list_service.hpp"
 #include "pid_file.hpp"
+#include "refresh_coalescer.hpp"
 #include "runtime_state_store.hpp"
 #include "system_resolver_hook.hpp"
 
@@ -149,7 +151,13 @@ private:
 
     // Signal handlers
     void handle_sigusr1();
-    void schedule_sigusr1_runtime_refresh();
+    // Coalesced runtime refresh (routes + firewall rules) shared by SIGUSR1
+    // and interface events; see RefreshCoalescer for the timing.
+    void request_runtime_refresh(const std::string& reason);
+    void run_coalesced_runtime_refresh();
+    // Drop a pending coalesced refresh: a full refresh or apply that started
+    // after it was requested covers it, or the runtime is being stopped.
+    void cancel_pending_runtime_refresh(const char* why);
     void handle_sighup();
     void handle_interface_monitor_events(uint32_t events);
     void handle_interface_state_change(const std::string& interface_name, bool is_up);
@@ -301,8 +309,19 @@ private:
     int resolver_config_hash_actual_task_id_{-1};
     // Short-interval retry while resolver hash is converging after apply.
     int resolver_config_hash_actual_retry_task_id_{-1};
-    // Debounced runtime refresh triggered by SIGUSR1.
-    int sigusr1_refresh_task_id_{-1};
+    // Runtime refresh requested by SIGUSR1 (netfilter hook) and by interface
+    // events. The first trigger after a quiet period refreshes almost at
+    // once (outside the handler that saw it); triggers within 1.5 s of a
+    // refresh fold into one trailing refresh. Keenetic fires bursts (UPnP
+    // rebuilds nat about once a minute, NDM reconfigures links together),
+    // and a weak MT7621 cannot afford a refresh per event.
+    static constexpr std::chrono::milliseconds kRuntimeRefreshLeadingDelay{1};
+    static constexpr std::chrono::milliseconds kRuntimeRefreshMinGap{1500};
+    RefreshCoalescer runtime_refresh_coalescer_{kRuntimeRefreshLeadingDelay,
+                                                kRuntimeRefreshMinGap};
+    int runtime_refresh_task_id_{-1};
+    // Reason of the trigger that armed the pending refresh (for the log).
+    std::string runtime_refresh_reason_;
     // Periodic background warm-up of the dnsmasq-populated ipsets — see
     // ListWarmer for the cache-bypass rationale.
     int list_warmer_task_id_{-1};

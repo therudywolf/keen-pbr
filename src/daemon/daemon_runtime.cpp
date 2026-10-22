@@ -75,6 +75,7 @@ void Daemon::stop_routing_runtime() {
 
     runtime_generation_.fetch_add(1, std::memory_order_acq_rel);
     cancel_startup_list_retry();
+    cancel_pending_runtime_refresh("dropped: routing runtime stopped");
 
     if (urltest_manager_) {
         urltest_manager_->clear();
@@ -724,6 +725,8 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
         lists_autoupdate_task_id_ = -1;
     }
     cancel_startup_list_retry();
+    // The apply below rebuilds routes and rules from scratch.
+    cancel_pending_runtime_refresh("covered by the config apply");
     if (keenetic_dns_refresh_task_id_ >= 0) {
         scheduler_->cancel(keenetic_dns_refresh_task_id_);
         keenetic_dns_refresh_task_id_ = -1;
