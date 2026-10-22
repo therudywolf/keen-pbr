@@ -183,6 +183,16 @@ public:
         return fwmark_mask_;
     }
 
+    // Whether a Destructive apply empties the dnsmasq-filled kpbr4d_/kpbr6d_
+    // sets (daemon.clear_dynamic_sets_on_apply, default false: kept).
+    void set_clear_dynamic_sets_on_apply(bool clear) {
+        clear_dynamic_sets_on_apply_ = clear;
+    }
+
+    bool clear_dynamic_sets_on_apply() const {
+        return clear_dynamic_sets_on_apply_;
+    }
+
     // Remove all firewall rules and IP sets created by this instance.
     // Should be called on daemon shutdown.
     virtual void cleanup() = 0;
@@ -200,6 +210,7 @@ protected:
     FirewallGlobalPrefilter global_prefilter_;
     uint32_t fwmark_mask_{0xFFFFFFFFu};
     bool ipv6_enabled_{true};
+    bool clear_dynamic_sets_on_apply_{false};
 };
 
 // Return the stable config/CLI label for a concrete backend.

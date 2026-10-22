@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -51,7 +52,10 @@ public:
 
 private:
     static constexpr const char* CHAIN_NAME = "KeenPbrTable";
-    void cleanup_live_impl();
+    // Remove the rules and destroy the sets this instance created, except
+    // the sets in `keep`; also destroy the live sets in `also_destroy`.
+    void cleanup_live_impl(const std::set<std::string>& keep = {},
+                           const std::set<std::string>& also_destroy = {});
     void cleanup_impl();
     void cleanup_rules_impl();
 
@@ -118,6 +122,19 @@ private:
     // RulesOnly: check every set the rules use, then rebuild the chains.
     void apply_rules_only(bool effective_ipv6,
                           const std::vector<PendingListSet>& list_sets);
+
+    // What a Destructive apply does with the dnsmasq-filled kpbr4d_/kpbr6d_
+    // sets it is about to declare again: keep the live ones whose layout
+    // still fits (their learned entries survive the apply), destroy the
+    // live ones whose family or timeout changed (`create -exist` would fail).
+    struct DynamicSetPlan {
+        std::set<std::string> keep;
+        std::set<std::string> destroy;
+    };
+    static bool is_dynamic_set_name(const std::string& set_name);
+    static DynamicSetPlan plan_dynamic_sets(const std::map<std::string, LiveSetInfo>& live,
+                                            const std::vector<PendingSet>& pending,
+                                            bool effective_ipv6);
     // Build early RETURN lines for the global prefilter.
     static std::string build_prefilter_lines(
         const FirewallGlobalPrefilter& prefilter);

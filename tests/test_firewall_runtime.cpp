@@ -54,6 +54,7 @@ public:
 
     void apply(FirewallApplyMode mode) override {
         applied_modes.push_back(mode);
+        clear_dynamic_sets_seen.push_back(clear_dynamic_sets_on_apply());
         if (mode == FirewallApplyMode::RulesOnly && refuse_rules_only) {
             throw FirewallRulesOnlyError("set kpbr4_shared is missing");
         }
@@ -68,6 +69,7 @@ public:
     }
 
     bool refuse_rules_only{false};
+    std::vector<bool> clear_dynamic_sets_seen;
 
     void cleanup() override {}
 
@@ -293,4 +295,26 @@ TEST_CASE("firewall_set_fingerprint: follows list contents, file stamps and IPv6
     CHECK(with_file_change == firewall_set_fingerprint(config, cache, false));
 
     std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("apply_runtime_firewall: dnsmasq sets are kept by default, cleared on request") {
+    Config config = shared_list_config();
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+
+    (void)apply_runtime_firewall(config, marks, {}, cache, firewall, FirewallApplyMode::Destructive);
+    config.daemon->clear_dynamic_sets_on_apply = true;
+    (void)apply_runtime_firewall(config, marks, {}, cache, firewall, FirewallApplyMode::Destructive);
+
+    CHECK(firewall.clear_dynamic_sets_seen == std::vector<bool>{false, true});
+}
+
+TEST_CASE("daemon.clear_dynamic_sets_on_apply: optional boolean") {
+    CHECK_NOTHROW(parse_config(R"({"daemon":{"clear_dynamic_sets_on_apply":true}})"));
+    CHECK_NOTHROW(parse_config(R"({"daemon":{"clear_dynamic_sets_on_apply":null}})"));
+    const Config omitted = parse_config(R"({"daemon":{}})");
+    CHECK_FALSE(omitted.daemon->clear_dynamic_sets_on_apply.has_value());
+    CHECK_THROWS_AS(parse_config(R"({"daemon":{"clear_dynamic_sets_on_apply":"yes"}})"),
+                    ConfigValidationError);
 }

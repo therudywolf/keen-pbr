@@ -598,6 +598,9 @@ Config parse_config(const std::string& json_str) {
         parsed_json, "daemon", "skip_marked_packets", "daemon.skip_marked_packets", issues);
     validate_optional_boolean_field(
         parsed_json, "daemon", "ipv6_enabled", "daemon.ipv6_enabled", issues);
+    validate_optional_boolean_field(
+        parsed_json, "daemon", "clear_dynamic_sets_on_apply",
+        "daemon.clear_dynamic_sets_on_apply", issues);
     validate_optional_integer_field(
         parsed_json, "daemon", "list_warmer_interval_seconds",
         "daemon.list_warmer_interval_seconds", issues);

@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <set>
+#include <tuple>
 #include <array>
 #include <algorithm>
 #include <sys/socket.h>
@@ -72,6 +73,28 @@ public:
     ps.timeout = timeout;
     return IptablesFirewall::live_hash_set_mismatch(
         IptablesFirewall::parse_ipset_terse_listing(listing), ps);
+  }
+
+  struct DynamicPlan {
+    std::set<std::string> keep;
+    std::set<std::string> destroy;
+  };
+
+  static DynamicPlan plan_dynamic_sets(
+      const std::string &listing,
+      const std::vector<std::tuple<std::string, std::string, uint32_t>> &pending,
+      bool ipv6) {
+    std::vector<IptablesFirewall::PendingSet> sets;
+    for (const auto &[name, family, timeout] : pending) {
+      IptablesFirewall::PendingSet ps;
+      ps.name = name;
+      ps.family_str = family;
+      ps.timeout = timeout;
+      sets.push_back(ps);
+    }
+    const auto plan = IptablesFirewall::plan_dynamic_sets(
+        IptablesFirewall::parse_ipset_terse_listing(listing), sets, ipv6);
+    return DynamicPlan{plan.keep, plan.destroy};
   }
 
   struct LiveSet {
@@ -1439,4 +1462,33 @@ TEST_CASE("build_ipt_script: rules-only rebuild keeps an existing PREROUTING jum
   CHECK(without_jump.rfind("*mangle\n:KeenPbrTable - [0:0]\n", 0) == 0);
   CHECK(without_jump.find("--match-set kpbr4_a dst") != std::string::npos);
   CHECK(without_jump.find("COMMIT\n") != std::string::npos);
+}
+
+TEST_CASE("plan_dynamic_sets: keep fitting dnsmasq sets, recreate changed ones") {
+  const std::string listing = std::string(kTerseListing) +
+      "\n"
+      "Name: kpbr4d_old_ttl\n"
+      "Type: hash:net\n"
+      "Header: family inet hashsize 1024 maxelem 65536 timeout 86400\n"
+      "\n"
+      "Name: kpbr6d_domains\n"
+      "Type: hash:net\n"
+      "Header: family inet6 hashsize 1024 maxelem 65536 timeout 600\n";
+
+  const auto plan = T::plan_dynamic_sets(listing,
+                                         {
+                                             {"kpbr4d_domains", "inet", 600},
+                                             {"kpbr4d_old_ttl", "inet", 600},
+                                             {"kpbr4d_new_list", "inet", 600},
+                                             {"kpbr4_static", "inet", 0},
+                                             {"kpbr6d_domains", "inet6", 600},
+                                         },
+                                         true);
+  CHECK(plan.keep == std::set<std::string>{"kpbr4d_domains", "kpbr6d_domains"});
+  CHECK(plan.destroy == std::set<std::string>{"kpbr4d_old_ttl"});
+
+  // With IPv6 off the v6 dynamic set is not reused.
+  const auto v4_only = T::plan_dynamic_sets(listing, {{"kpbr6d_domains", "inet6", 600}}, false);
+  CHECK(v4_only.keep.empty());
+  CHECK(v4_only.destroy.empty());
 }

@@ -515,7 +515,27 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
     }
 
     if (mode == FirewallApplyMode::Destructive) {
-        cleanup_live_impl();
+        // A config save or list refresh used to destroy the dnsmasq-filled
+        // sets too: domain traffic then left via the default route until
+        // dnsmasq answered again or the list warmer ran (up to 10 minutes).
+        // Keep the live ones whose layout still fits, unless configured not to.
+        DynamicSetPlan dynamic_plan;
+        if (!clear_dynamic_sets_on_apply()) {
+            const auto listing =
+                safe_exec_capture({"ipset", "list", "-t"}, /*suppress_stderr=*/true);
+            if (listing.exit_code == 0 && !listing.truncated) {
+                dynamic_plan = plan_dynamic_sets(parse_ipset_terse_listing(listing.stdout_output),
+                                                 pending_sets_,
+                                                 effective_ipv6);
+            }
+            // Without a listing nothing is known about the live sets: they
+            // are all recreated, as before.
+            for (const auto& name : dynamic_plan.destroy) {
+                Logger::instance().info(
+                    "Dynamic set {} changed family or timeout; recreating it empty", name);
+            }
+        }
+        cleanup_live_impl(dynamic_plan.keep, dynamic_plan.destroy);
     } else {
         cleanup_rules_impl();
     }
@@ -662,6 +682,31 @@ std::optional<std::string> IptablesFirewall::live_hash_set_mismatch(
     return std::nullopt;
 }
 
+bool IptablesFirewall::is_dynamic_set_name(const std::string& set_name) {
+    return set_name.rfind("kpbr4d_", 0) == 0 || set_name.rfind("kpbr6d_", 0) == 0;
+}
+
+IptablesFirewall::DynamicSetPlan IptablesFirewall::plan_dynamic_sets(
+    const std::map<std::string, LiveSetInfo>& live,
+    const std::vector<PendingSet>& pending,
+    bool effective_ipv6) {
+    DynamicSetPlan plan;
+    for (const auto& ps : pending) {
+        if (!is_dynamic_set_name(ps.name) || live.count(ps.name) == 0) {
+            continue;
+        }
+        if (ps.family_str == "inet6" && !effective_ipv6) {
+            continue;
+        }
+        if (live_hash_set_mismatch(live, ps).has_value()) {
+            plan.destroy.insert(ps.name);
+        } else {
+            plan.keep.insert(ps.name);
+        }
+    }
+    return plan;
+}
+
 void IptablesFirewall::apply_rules_only(bool effective_ipv6,
                                         const std::vector<PendingListSet>& list_sets) {
     // Preflight, before anything is touched: every set the new rules use must
@@ -737,7 +782,8 @@ void IptablesFirewall::cleanup_rules_impl() {
     }
 }
 
-void IptablesFirewall::cleanup_live_impl() {
+void IptablesFirewall::cleanup_live_impl(const std::set<std::string>& keep,
+                                         const std::set<std::string>& also_destroy) {
     auto& log = Logger::instance();
 
     cleanup_rules_impl();
@@ -754,7 +800,21 @@ void IptablesFirewall::cleanup_live_impl() {
 
     // Destroy all created per-list ipsets
     for (const auto& [name, _] : created_sets_) {
+        if (keep.count(name) != 0) {
+            log.verbose("iptables cleanup: keeping ipset {}", name);
+            continue;
+        }
         log.verbose("iptables cleanup: destroying ipset {}", name);
+        safe_exec({"ipset", "flush", name}, /*suppress_output=*/true);
+        safe_exec({"ipset", "destroy", name}, /*suppress_output=*/true);
+    }
+    // Live sets this instance did not create (left by an instance that did
+    // not shut down cleanly) but that cannot be reused as they are.
+    for (const auto& name : also_destroy) {
+        if (created_sets_.count(name) != 0) {
+            continue;
+        }
+        log.verbose("iptables cleanup: destroying stale ipset {}", name);
         safe_exec({"ipset", "flush", name}, /*suppress_output=*/true);
         safe_exec({"ipset", "destroy", name}, /*suppress_output=*/true);
     }
