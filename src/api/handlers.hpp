@@ -180,6 +180,7 @@ struct ApiContext {
 //   GET  /api/runtime/outbounds - live outbound/interface runtime state
 //   GET  /api/runtime/interfaces - live system interface inventory
 //   POST /api/routing/test    - test expected/actual routing for an IP or domain
+//   GET  /api/diagnostics/command-failure - last failed piped command (text)
 void register_api_handlers(ApiServer& server, ApiContext& ctx);
 
 } // namespace keen_pbr3

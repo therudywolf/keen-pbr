@@ -7,7 +7,7 @@
 //
 //  Then include this file, and then do
 //
-//     KeenPbrTypesRmjovw data = nlohmann::json::parse(jsonString);
+//     KeenPbrTypes data = nlohmann::json::parse(jsonString);
 
 #pragma once
 
@@ -124,6 +124,8 @@ namespace api {
         std::optional<std::vector<std::string>> autoheal_watchlist;
         std::optional<std::string> cache_dir;
         std::optional<bool> clear_dynamic_sets_on_apply;
+        std::optional<int64_t> exec_kill_grace_seconds;
+        std::optional<int64_t> exec_timeout_seconds;
         std::optional<DaemonConfigFirewallBackend> firewall_backend;
         std::optional<int64_t> firewall_verify_max_bytes;
         std::optional<bool> ipv6_enabled;
@@ -462,7 +464,7 @@ namespace api {
         std::vector<RuntimeOutboundStateElement> outbounds;
     };
 
-    struct KeenPbrTypesRmjovw {
+    struct KeenPbrTypes {
         std::optional<ApiConfig> api_config;
         std::optional<CacheMetadata> cache_metadata;
         std::optional<CheckStatus> check_status;
@@ -606,9 +608,6 @@ namespace api {
     void from_json(const json & j, ListRefreshResponse & x);
     void to_json(json & j, const ListRefreshResponse & x);
 
-    void from_json(const json & j, ListRefreshResponseStatus & x);
-    void to_json(json & j, const ListRefreshResponseStatus & x);
-
     void from_json(const json & j, PolicyRuleCheck & x);
     void to_json(json & j, const PolicyRuleCheck & x);
 
@@ -657,8 +656,8 @@ namespace api {
     void from_json(const json & j, RuntimeOutboundsResponse & x);
     void to_json(json & j, const RuntimeOutboundsResponse & x);
 
-    void from_json(const json & j, KeenPbrTypesRmjovw & x);
-    void to_json(json & j, const KeenPbrTypesRmjovw & x);
+    void from_json(const json & j, KeenPbrTypes & x);
+    void to_json(json & j, const KeenPbrTypes & x);
 
     void from_json(const json & j, CheckStatus & x);
     void to_json(json & j, const CheckStatus & x);
@@ -683,6 +682,9 @@ namespace api {
 
     void from_json(const json & j, HealthResponseStatus & x);
     void to_json(json & j, const HealthResponseStatus & x);
+
+    void from_json(const json & j, ListRefreshResponseStatus & x);
+    void to_json(json & j, const ListRefreshResponseStatus & x);
 
     void from_json(const json & j, RoutingHealthErrorResponseOverall & x);
     void to_json(json & j, const RoutingHealthErrorResponseOverall & x);
@@ -754,6 +756,8 @@ namespace api {
         x.autoheal_watchlist = get_stack_optional<std::vector<std::string>>(j, "autoheal_watchlist");
         x.cache_dir = get_stack_optional<std::string>(j, "cache_dir");
         x.clear_dynamic_sets_on_apply = get_stack_optional<bool>(j, "clear_dynamic_sets_on_apply");
+        x.exec_kill_grace_seconds = get_stack_optional<int64_t>(j, "exec_kill_grace_seconds");
+        x.exec_timeout_seconds = get_stack_optional<int64_t>(j, "exec_timeout_seconds");
         x.firewall_backend = get_stack_optional<DaemonConfigFirewallBackend>(j, "firewall_backend");
         x.firewall_verify_max_bytes = get_stack_optional<int64_t>(j, "firewall_verify_max_bytes");
         x.ipv6_enabled = get_stack_optional<bool>(j, "ipv6_enabled");
@@ -774,6 +778,8 @@ namespace api {
         j["autoheal_watchlist"] = x.autoheal_watchlist;
         j["cache_dir"] = x.cache_dir;
         j["clear_dynamic_sets_on_apply"] = x.clear_dynamic_sets_on_apply;
+        j["exec_kill_grace_seconds"] = x.exec_kill_grace_seconds;
+        j["exec_timeout_seconds"] = x.exec_timeout_seconds;
         j["firewall_backend"] = x.firewall_backend;
         j["firewall_verify_max_bytes"] = x.firewall_verify_max_bytes;
         j["ipv6_enabled"] = x.ipv6_enabled;
@@ -1170,20 +1176,6 @@ namespace api {
         j["status"] = x.status;
     }
 
-    inline void from_json(const json & j, ListRefreshResponseStatus & x) {
-        if (j == "ok") x = ListRefreshResponseStatus::OK;
-        else if (j == "partial") x = ListRefreshResponseStatus::PARTIAL;
-        else { throw std::runtime_error("Input JSON does not conform to schema!"); }
-    }
-
-    inline void to_json(json & j, const ListRefreshResponseStatus & x) {
-        switch (x) {
-            case ListRefreshResponseStatus::OK: j = "ok"; break;
-            case ListRefreshResponseStatus::PARTIAL: j = "partial"; break;
-            default: throw std::runtime_error("Unexpected value in enumeration \"ListRefreshResponseStatus\": " + std::to_string(static_cast<int>(x)));
-        }
-    }
-
     inline void from_json(const json & j, PolicyRuleCheck& x) {
         x.detail = get_stack_optional<std::string>(j, "detail");
         x.expected_table = j.at("expected_table").get<int64_t>();
@@ -1446,7 +1438,7 @@ namespace api {
         j["outbounds"] = x.outbounds;
     }
 
-    inline void from_json(const json & j, KeenPbrTypesRmjovw& x) {
+    inline void from_json(const json & j, KeenPbrTypes& x) {
         x.api_config = get_stack_optional<ApiConfig>(j, "ApiConfig");
         x.cache_metadata = get_stack_optional<CacheMetadata>(j, "CacheMetadata");
         x.check_status = get_stack_optional<CheckStatus>(j, "CheckStatus");
@@ -1499,7 +1491,7 @@ namespace api {
         x.validation_error = get_stack_optional<ValidationErrorElement>(j, "ValidationError");
     }
 
-    inline void to_json(json & j, const KeenPbrTypesRmjovw & x) {
+    inline void to_json(json & j, const KeenPbrTypes & x) {
         j = json::object();
         j["ApiConfig"] = x.api_config;
         j["CacheMetadata"] = x.cache_metadata;
@@ -1676,6 +1668,20 @@ namespace api {
             case HealthResponseStatus::RUNNING: j = "running"; break;
             case HealthResponseStatus::STOPPED: j = "stopped"; break;
             default: throw std::runtime_error("Unexpected value in enumeration \"HealthResponseStatus\": " + std::to_string(static_cast<int>(x)));
+        }
+    }
+
+    inline void from_json(const json & j, ListRefreshResponseStatus & x) {
+        if (j == "ok") x = ListRefreshResponseStatus::OK;
+        else if (j == "partial") x = ListRefreshResponseStatus::PARTIAL;
+        else { throw std::runtime_error("Input JSON does not conform to schema!"); }
+    }
+
+    inline void to_json(json & j, const ListRefreshResponseStatus & x) {
+        switch (x) {
+            case ListRefreshResponseStatus::OK: j = "ok"; break;
+            case ListRefreshResponseStatus::PARTIAL: j = "partial"; break;
+            default: throw std::runtime_error("Unexpected value in enumeration \"ListRefreshResponseStatus\": " + std::to_string(static_cast<int>(x)));
         }
     }
 

@@ -205,6 +205,8 @@ int main(int argc, char* argv[]) {
         std::string json_str = read_file(opts.config_path);
         keen_pbr3::Config config = keen_pbr3::parse_config(json_str);
         keen_pbr3::validate_config(config);
+        // Bound every helper process (CLI commands and the service alike).
+        keen_pbr3::apply_exec_timeouts(config);
         if (opts.run_service && opts.has_pid_file_override) {
             if (!config.daemon.has_value()) {
                 config.daemon = keen_pbr3::DaemonConfig{};

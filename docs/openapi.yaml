@@ -534,6 +534,38 @@ paths:
                     message: "list 'google_disk' holds 40 entries but no enabled rule references it — it routes nothing"
                 note: advisory only — these never block a config save
 
+  /api/diagnostics/command-failure:
+    get:
+      summary: Last failed helper command
+      description: >
+        Returns the record of the last piped helper command that failed or
+        timed out (ipset restore, iptables-restore, nft): command line, exit
+        code, the input it was given (first 1 MiB) and its output (first
+        64 KiB). The record lives in /tmp/forest-pbr/cmdfail.log, so it is
+        empty after a reboot. Capability probes that may fail by design are
+        not recorded.
+      operationId: getDiagnosticsCommandFailure
+      responses:
+        "200":
+          description: Failure record
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |-
+                === 2026-10-22T09:00:00Z ===
+                command: ipset restore
+                exit_code: 1
+                stdin_bytes: 42
+                --- stdin ---
+                add kpbr4_example 192.0.2.0/24
+                response_bytes: 61
+                --- response ---
+                ipset v7.24: Error in line 1: The set with the given name does not exist
+                === end ===
+        "204":
+          description: No helper command has failed since boot
+
   /api/dns/test:
     get:
       summary: Stream DNS test queries
@@ -634,6 +666,31 @@ components:
             iptables backend only.
           default: false
           example: false
+        exec_timeout_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 86400
+          description: >
+            Deadline in seconds for every helper process the daemon starts
+            (ipset/iptables-restore, the dnsmasq hook, capability probes). A
+            helper still running at the deadline is sent SIGTERM, then SIGKILL
+            after exec_kill_grace_seconds, so a hung helper cannot block the
+            daemon. Defaults to 90 when omitted or null (restores and dnsmasq
+            restarts are slow on MIPS routers).
+          default: 90
+          example: 90
+        exec_kill_grace_seconds:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 3600
+          description: >
+            Grace period in seconds between SIGTERM and SIGKILL for a helper
+            process that exceeded exec_timeout_seconds. Defaults to 2 when
+            omitted or null.
+          default: 2
+          example: 2
         list_warmer_interval_seconds:
           type: integer
           nullable: true

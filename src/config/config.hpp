@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -79,6 +80,12 @@ Config parse_config(const std::string& json_str);
 void validate_config(const Config& config);
 Config parse_and_validate_config(const std::string& json_str);
 size_t max_file_size_bytes(const Config& config);
+// daemon.exec_timeout_seconds / daemon.exec_kill_grace_seconds with their
+// defaults (see safe_exec.hpp).
+std::chrono::seconds exec_timeout(const Config& config);
+std::chrono::seconds exec_kill_grace(const Config& config);
+// Applies the two values above to every later safe_exec* call.
+void apply_exec_timeouts(const Config& config);
 FirewallBackendPreference firewall_backend_preference(const Config& config);
 
 // --- Fwmark allocation ---

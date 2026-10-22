@@ -16,6 +16,7 @@
 
 #include "../dns/dns_probe_server.hpp"
 #include "../util/cron.hpp"
+#include "../util/safe_exec.hpp"
 
 namespace keen_pbr3 {
 
@@ -623,6 +624,10 @@ Config parse_config(const std::string& json_str) {
         "daemon.firewall_verify_max_bytes", issues);
     validate_optional_integer_field(
         parsed_json, "daemon", "max_file_size_bytes", "daemon.max_file_size_bytes", issues);
+    validate_optional_integer_field(
+        parsed_json, "daemon", "exec_timeout_seconds", "daemon.exec_timeout_seconds", issues);
+    validate_optional_integer_field(
+        parsed_json, "daemon", "exec_kill_grace_seconds", "daemon.exec_kill_grace_seconds", issues);
     validate_optional_string_field(
         parsed_json, "daemon", "firewall_backend", "daemon.firewall_backend", issues);
     validate_optional_boolean_field(
@@ -679,6 +684,21 @@ void validate_config(const Config& cfg) {
         *cfg.daemon->list_warmer_interval_seconds < 0) {
         add_issue(issues, "daemon.list_warmer_interval_seconds",
                   "daemon.list_warmer_interval_seconds must be >= 0");
+    }
+
+    if (cfg.daemon) {
+        const auto exec_timeout_seconds =
+            cfg.daemon->exec_timeout_seconds.value_or(kDefaultExecTimeoutSeconds);
+        if (exec_timeout_seconds < 1 || exec_timeout_seconds > 86400) {
+            add_issue(issues, "daemon.exec_timeout_seconds",
+                      "daemon.exec_timeout_seconds must be between 1 and 86400");
+        }
+        const auto exec_kill_grace_seconds =
+            cfg.daemon->exec_kill_grace_seconds.value_or(kDefaultExecKillGraceSeconds);
+        if (exec_kill_grace_seconds < 0 || exec_kill_grace_seconds > 3600) {
+            add_issue(issues, "daemon.exec_kill_grace_seconds",
+                      "daemon.exec_kill_grace_seconds must be between 0 and 3600");
+        }
     }
 
     if (cfg.lists_autoupdate) {
@@ -1102,6 +1122,20 @@ size_t max_file_size_bytes(const Config& config) {
                            .max_file_size_bytes.value_or(
                                static_cast<int64_t>(kDefaultMaxFileSizeBytes));
     return static_cast<size_t>(bytes);
+}
+
+std::chrono::seconds exec_timeout(const Config& config) {
+    return std::chrono::seconds{config.daemon.value_or(DaemonConfig{})
+                                    .exec_timeout_seconds.value_or(kDefaultExecTimeoutSeconds)};
+}
+
+std::chrono::seconds exec_kill_grace(const Config& config) {
+    return std::chrono::seconds{config.daemon.value_or(DaemonConfig{})
+                                    .exec_kill_grace_seconds.value_or(kDefaultExecKillGraceSeconds)};
+}
+
+void apply_exec_timeouts(const Config& config) {
+    set_safe_exec_timeouts(exec_timeout(config), exec_kill_grace(config));
 }
 
 FirewallBackendPreference firewall_backend_preference(const Config& config) {

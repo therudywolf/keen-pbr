@@ -142,6 +142,10 @@ void register_config_handler(ApiServer& server, ApiContext& ctx) {
                 throw ApiError("Commit/apply failed", 500, error_payload.dump());
             }
 
+            // The daemon applied the new config; later helper processes use
+            // its exec deadlines.
+            apply_exec_timeouts(staged_snapshot->first);
+
             nlohmann::json response = {
                 {"status", "ok"},
                 {"message", "Config saved and applied"},

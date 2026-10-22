@@ -32,6 +32,20 @@ export interface DaemonConfig {
    */
   max_file_size_bytes?: number;
   /**
+     * Deadline in seconds for every helper process the daemon starts (ipset/iptables-restore, the dnsmasq hook, capability probes). A helper still running at the deadline is sent SIGTERM, then SIGKILL after exec_kill_grace_seconds, so a hung helper cannot block the daemon. Defaults to 90 when omitted or null (restores and dnsmasq restarts are slow on MIPS routers).
+
+     * @minimum 1
+     * @maximum 86400
+     */
+  exec_timeout_seconds?: number | null;
+  /**
+     * Grace period in seconds between SIGTERM and SIGKILL for a helper process that exceeded exec_timeout_seconds. Defaults to 2 when omitted or null.
+
+     * @minimum 0
+     * @maximum 3600
+     */
+  exec_kill_grace_seconds?: number | null;
+  /**
      * Cadence in seconds at which the daemon re-resolves each list's domains via a direct public-resolver query (bypassing dnsmasq's cache) and refreshes the matching kpbr*d_<list> ipset entries. Set to 0 to disable warming. Defaults to 600 (10 minutes) when omitted or null.
 
      * @minimum 0

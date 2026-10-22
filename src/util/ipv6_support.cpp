@@ -51,7 +51,8 @@ bool probe_nft_ipv6_support() {
         "    ip6 saddr ::1 accept\n"
         "  }\n"
         "}\n";
-    return safe_exec_pipe_stdin({"nft", "-c", "-f", "-"}, kProbeRuleset) == 0;
+    return safe_exec_pipe_stdin({"nft", "-c", "-f", "-"}, kProbeRuleset,
+                                ExecFailureReport::Quiet) == 0;
 }
 
 bool probe_iptables_ipv6_support() {
@@ -62,7 +63,8 @@ bool probe_iptables_ipv6_support() {
     static constexpr const char* kProbeRuleset = "*mangle\nCOMMIT\n";
     return safe_exec({"ip6tables", "-t", "mangle", "-S"},
                      /*suppress_output=*/true) == 0
-        && safe_exec_pipe_stdin({"ip6tables-restore", "--test"}, kProbeRuleset) == 0;
+        && safe_exec_pipe_stdin({"ip6tables-restore", "--test"}, kProbeRuleset,
+                                ExecFailureReport::Quiet) == 0;
 }
 
 } // namespace

@@ -2,6 +2,7 @@
 
 #include "../src/config/config.hpp"
 #include "../src/config/routing_state.hpp"
+#include "../src/util/safe_exec.hpp"
 #include "../src/util/system_info.hpp"
 
 #include <nlohmann/json.hpp>
@@ -639,6 +640,42 @@ TEST_CASE("daemon max_file_size_bytes: default is 8 MiB") {
 TEST_CASE("daemon max_file_size_bytes: zero is rejected") {
     CHECK_THROWS_AS(parse_test_config(R"({"daemon":{"max_file_size_bytes":0}})"),
                     ConfigValidationError);
+}
+
+TEST_CASE("daemon exec timeout must be between 1 and 86400 seconds") {
+    CHECK(validate_issues(R"({"daemon":{"exec_timeout_seconds":90}})").empty());
+    CHECK(validate_issues(R"({"daemon":{"exec_timeout_seconds":null}})").empty());
+    for (const char* json : {R"({"daemon":{"exec_timeout_seconds":0}})",
+                             R"({"daemon":{"exec_timeout_seconds":86401}})"}) {
+        CAPTURE(json);
+        const auto issues = validate_issues(json);
+        REQUIRE(issues.size() == 1);
+        CHECK(issues[0].path == "daemon.exec_timeout_seconds");
+    }
+    const auto non_integer = parse_issues(R"({"daemon":{"exec_timeout_seconds":"90"}})");
+    REQUIRE(non_integer.size() == 1);
+    CHECK(non_integer[0].path == "daemon.exec_timeout_seconds");
+}
+
+TEST_CASE("daemon exec kill grace may be zero but not negative") {
+    CHECK(validate_issues(R"({"daemon":{"exec_kill_grace_seconds":0}})").empty());
+    const auto issues = validate_issues(R"({"daemon":{"exec_kill_grace_seconds":-1}})");
+    REQUIRE(issues.size() == 1);
+    CHECK(issues[0].path == "daemon.exec_kill_grace_seconds");
+}
+
+TEST_CASE("exec timeouts default to 90 s and 2 s and can be applied") {
+    Config defaults;
+    CHECK(exec_timeout(defaults) == std::chrono::seconds{90});
+    CHECK(exec_kill_grace(defaults) == std::chrono::seconds{2});
+
+    const auto previous = safe_exec_timeouts();
+    Config configured = parse_test_config(
+        R"({"daemon":{"exec_timeout_seconds":120,"exec_kill_grace_seconds":5}})");
+    apply_exec_timeouts(configured);
+    CHECK(safe_exec_timeouts().timeout == std::chrono::seconds{120});
+    CHECK(safe_exec_timeouts().kill_grace == std::chrono::seconds{5});
+    set_safe_exec_timeouts(previous.timeout, previous.kill_grace);
 }
 
 TEST_CASE("remote list URLs allow only HTTP and HTTPS") {
