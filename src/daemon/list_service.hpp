@@ -4,7 +4,11 @@
 #include "../config/config.hpp"
 #include "../util/traced_mutex.hpp"
 
+#include <condition_variable>
+#include <exception>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -72,7 +76,11 @@ public:
     void ensure_dir();
     const CacheManager& cache_manager() const;
 
-    void download_uncached(const Config& config, const OutboundMarkMap& outbound_marks);
+    // Download the URL-backed lists that have no cache yet.
+    RemoteListsRefreshResult download_uncached(
+        const Config& config,
+        const OutboundMarkMap& outbound_marks,
+        const std::set<std::string>* relevant_lists = nullptr);
     RemoteListsRefreshResult refresh_remote_lists(
         const Config& config,
         const OutboundMarkMap& outbound_marks,
@@ -80,7 +88,23 @@ public:
         const std::set<std::string>* target_lists = nullptr);
 
 private:
+    // One list refresh transaction. Callers asking for the same refresh while
+    // it runs join it and share its result (or its exception).
+    struct RefreshFlight {
+        std::string key;
+        bool done{false};
+        RemoteListsRefreshResult result;
+        std::exception_ptr error;
+        std::condition_variable completed;
+    };
+
     RemoteListsRefreshResult download_remote_lists(
+        const Config& config,
+        const OutboundMarkMap& outbound_marks,
+        bool only_uncached,
+        const std::set<std::string>* relevant_lists,
+        const std::set<std::string>* target_lists);
+    RemoteListsRefreshResult run_refresh_transaction(
         const Config& config,
         const OutboundMarkMap& outbound_marks,
         bool only_uncached,
@@ -88,6 +112,11 @@ private:
         const std::set<std::string>* target_lists);
 
     mutable TracedMutex mutex_;
+    // Serializes refresh transactions: startup, scheduled, API and config
+    // apply refreshes all write the same deterministic cache temp paths.
+    std::mutex refresh_mutex_;
+    std::condition_variable refresh_available_;
+    std::shared_ptr<RefreshFlight> refresh_flight_;
     CacheManager cache_manager_;
 };
 

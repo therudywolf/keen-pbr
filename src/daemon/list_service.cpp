@@ -2,6 +2,8 @@
 
 #include "../log/logger.hpp"
 
+#include <algorithm>
+
 namespace keen_pbr3 {
 
 namespace {
@@ -9,6 +11,43 @@ namespace {
 const std::map<std::string, ListConfig>& config_lists(const Config& config) {
     static const std::map<std::string, ListConfig> empty_lists;
     return config.lists ? *config.lists : empty_lists;
+}
+
+bool in_refresh_scope(const std::string& name,
+                      const ListConfig& list_cfg,
+                      const std::set<std::string>* target_lists) {
+    return list_cfg.url.has_value() &&
+           (target_lists == nullptr || target_lists->count(name) != 0);
+}
+
+// Identity of a refresh transaction: everything that decides what it
+// downloads and how it reports the result. Built only from the URL-backed
+// lists in scope (not from the whole config, which on a router can carry
+// thousands of inline domains) so computing it stays cheap.
+std::string refresh_flight_key(const Config& config,
+                               const OutboundMarkMap& outbound_marks,
+                               bool only_uncached,
+                               const std::set<std::string>* relevant_lists,
+                               const std::set<std::string>* target_lists) {
+    std::string key = only_uncached ? "uncached" : "all";
+    for (const auto& [name, list_cfg] : config_lists(config)) {
+        if (!in_refresh_scope(name, list_cfg, target_lists)) {
+            continue;
+        }
+        key += '\n';
+        key += name;
+        key += '\t';
+        key += *list_cfg.url;
+        key += '\t';
+        if (list_cfg.detour.has_value()) {
+            const auto it = outbound_marks.find(*list_cfg.detour);
+            key += it != outbound_marks.end() ? std::to_string(it->second)
+                                              : "?" + *list_cfg.detour;
+        }
+        key += '\t';
+        key += relevant_lists != nullptr && relevant_lists->count(name) != 0 ? 'r' : '-';
+    }
+    return key;
 }
 
 } // namespace
@@ -102,9 +141,11 @@ const CacheManager& ListService::cache_manager() const {
     return cache_manager_;
 }
 
-void ListService::download_uncached(const Config& config,
-                                    const OutboundMarkMap& outbound_marks) {
-    (void)download_remote_lists(config, outbound_marks, true, nullptr, nullptr);
+RemoteListsRefreshResult ListService::download_uncached(
+    const Config& config,
+    const OutboundMarkMap& outbound_marks,
+    const std::set<std::string>* relevant_lists) {
+    return download_remote_lists(config, outbound_marks, true, relevant_lists, nullptr);
 }
 
 RemoteListsRefreshResult ListService::refresh_remote_lists(
@@ -121,13 +162,75 @@ RemoteListsRefreshResult ListService::download_remote_lists(
     bool only_uncached,
     const std::set<std::string>* relevant_lists,
     const std::set<std::string>* target_lists) {
+    // Nothing to download: no flight, no waiting on an unrelated one.
+    const auto& lists = config_lists(config);
+    const bool any_in_scope = std::any_of(
+        lists.begin(), lists.end(), [target_lists](const auto& entry) {
+            return in_refresh_scope(entry.first, entry.second, target_lists);
+        });
+    if (!any_in_scope) {
+        return {};
+    }
+
+    // All entry points converge here. A caller asking for the refresh that is
+    // already running joins it and receives its result; a different refresh
+    // waits, so two transactions never write the same temporary cache files.
+    const std::string flight_key = refresh_flight_key(
+        config, outbound_marks, only_uncached, relevant_lists, target_lists);
+    std::shared_ptr<RefreshFlight> flight;
+    {
+        std::unique_lock<std::mutex> lock(refresh_mutex_);
+        while (refresh_flight_ && refresh_flight_->key != flight_key) {
+            refresh_available_.wait(lock);
+        }
+        if (refresh_flight_) {
+            flight = refresh_flight_;
+            flight->completed.wait(lock, [&flight]() { return flight->done; });
+            if (flight->error) {
+                std::rethrow_exception(flight->error);
+            }
+            return flight->result;
+        }
+        flight = std::make_shared<RefreshFlight>();
+        flight->key = flight_key;
+        refresh_flight_ = flight;
+    }
+
+    RemoteListsRefreshResult result;
+    std::exception_ptr error;
+    try {
+        result = run_refresh_transaction(
+            config, outbound_marks, only_uncached, relevant_lists, target_lists);
+    } catch (...) {
+        error = std::current_exception();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(refresh_mutex_);
+        flight->result = result;
+        flight->error = error;
+        flight->done = true;
+        refresh_flight_.reset();
+    }
+    flight->completed.notify_all();
+    refresh_available_.notify_all();
+
+    if (error) {
+        std::rethrow_exception(error);
+    }
+    return result;
+}
+
+RemoteListsRefreshResult ListService::run_refresh_transaction(
+    const Config& config,
+    const OutboundMarkMap& outbound_marks,
+    bool only_uncached,
+    const std::set<std::string>* relevant_lists,
+    const std::set<std::string>* target_lists) {
     RemoteListsRefreshResult result;
 
     for (const auto& [name, list_cfg] : config_lists(config)) {
-        if (!list_cfg.url.has_value()) {
-            continue;
-        }
-        if (target_lists && target_lists->count(name) == 0) {
+        if (!in_refresh_scope(name, list_cfg, target_lists)) {
             continue;
         }
 

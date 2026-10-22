@@ -76,6 +76,7 @@ struct HttpResponse {
     std::string reason{"OK"};
     std::string body;
     std::vector<std::string> headers;
+    std::chrono::milliseconds delay{0};
 };
 
 class TestHttpServer {
@@ -130,6 +131,10 @@ public:
         return "http://127.0.0.1:" + std::to_string(port_) + path;
     }
 
+    int request_count() const {
+        return request_count_.load();
+    }
+
 private:
     void serve() {
         while (running_.load()) {
@@ -146,6 +151,7 @@ private:
     }
 
     void handle_client(int client_fd) {
+        request_count_.fetch_add(1);
         std::string request;
         char buffer[1024];
         while (request.find("\r\n\r\n") == std::string::npos) {
@@ -176,6 +182,9 @@ private:
             response.status = 404;
             response.reason = "Not Found";
         }
+        if (response.delay.count() > 0) {
+            std::this_thread::sleep_for(response.delay);
+        }
 
         std::ostringstream out;
         out << "HTTP/1.1 " << response.status << ' ' << response.reason << "\r\n"
@@ -193,10 +202,140 @@ private:
     int listen_fd_{-1};
     uint16_t port_{0};
     std::atomic<bool> running_{true};
+    std::atomic<int> request_count_{0};
     std::thread worker_;
 };
 
 } // namespace
+
+TEST_CASE("refresh_remote_lists: identical concurrent callers join one flight") {
+    CurlGlobalGuard curl_guard;
+    HttpResponse response;
+    response.body = "example.com\n";
+    response.delay = std::chrono::milliseconds{200};
+    TestHttpServer server({{"/list.txt", response}});
+
+    const auto temp_dir = make_temp_dir();
+    ListService service(temp_dir);
+    service.ensure_dir();
+    Config config;
+    ListConfig remote;
+    remote.url = server.url("/list.txt");
+    config.lists = std::map<std::string, ListConfig>{{"remote", remote}};
+    const OutboundMarkMap marks;
+    const std::set<std::string> relevant{"remote"};
+
+    std::optional<RemoteListsRefreshResult> first;
+    std::optional<RemoteListsRefreshResult> second;
+    std::thread one([&] { first = service.refresh_remote_lists(config, marks, &relevant); });
+    // Let the first caller start its download before the second one asks.
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    std::thread two([&] { second = service.refresh_remote_lists(config, marks, &relevant); });
+    one.join();
+    two.join();
+
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(first->changed_lists == std::vector<std::string>{"remote"});
+    CHECK(first->relevant_changed_lists == std::vector<std::string>{"remote"});
+    CHECK(second->changed_lists == first->changed_lists);
+    CHECK(second->relevant_changed_lists == first->relevant_changed_lists);
+    CHECK(server.request_count() == 1);
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("refresh_remote_lists: different scopes run one after another") {
+    CurlGlobalGuard curl_guard;
+    HttpResponse response;
+    response.body = "example.com\n";
+    response.delay = std::chrono::milliseconds{100};
+    TestHttpServer server({{"/a.txt", response}, {"/b.txt", response}});
+
+    const auto temp_dir = make_temp_dir();
+    ListService service(temp_dir);
+    service.ensure_dir();
+    Config config;
+    ListConfig list_a;
+    list_a.url = server.url("/a.txt");
+    ListConfig list_b;
+    list_b.url = server.url("/b.txt");
+    config.lists = std::map<std::string, ListConfig>{{"a", list_a}, {"b", list_b}};
+    const OutboundMarkMap marks;
+    const std::set<std::string> only_a{"a"};
+    const std::set<std::string> only_b{"b"};
+
+    std::optional<RemoteListsRefreshResult> first;
+    std::optional<RemoteListsRefreshResult> second;
+    std::thread one([&] {
+        first = service.refresh_remote_lists(config, marks, nullptr, &only_a);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+    std::thread two([&] {
+        second = service.refresh_remote_lists(config, marks, nullptr, &only_b);
+    });
+    one.join();
+    two.join();
+
+    // A different refresh does not join: each scope reports only its own list.
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(first->refreshed_lists == std::vector<std::string>{"a"});
+    CHECK(second->refreshed_lists == std::vector<std::string>{"b"});
+    CHECK(server.request_count() == 2);
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("download_uncached: reports changes, then skips cached lists") {
+    CurlGlobalGuard curl_guard;
+    TestHttpServer server({
+        {"/route.txt", HttpResponse{200, "OK", "example.com\n"}},
+        {"/unused.txt", HttpResponse{200, "OK", "example.org\n"}},
+    });
+
+    const auto temp_dir = make_temp_dir();
+    ListService service(temp_dir);
+    service.ensure_dir();
+    ListConfig route;
+    route.url = server.url("/route.txt");
+    ListConfig unused;
+    unused.url = server.url("/unused.txt");
+    ListConfig inline_only;
+    inline_only.domains = std::vector<std::string>{"inline.example"};
+    Config config;
+    config.lists = std::map<std::string, ListConfig>{
+        {"route", route},
+        {"unused", unused},
+        {"inline", inline_only},
+    };
+
+    const std::set<std::string> relevant_lists{"route"};
+    const auto result = service.download_uncached(config, OutboundMarkMap{}, &relevant_lists);
+    CHECK(result.changed_lists == std::vector<std::string>{"route", "unused"});
+    CHECK(result.relevant_changed_lists == std::vector<std::string>{"route"});
+    CHECK(result.failed_lists.empty());
+
+    const auto second_result = service.download_uncached(config, OutboundMarkMap{}, &relevant_lists);
+    CHECK(second_result.refreshed_lists.empty());
+    CHECK(second_result.changed_lists.empty());
+    CHECK(server.request_count() == 2);
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("refresh_remote_lists: a config without URL lists returns at once") {
+    const auto temp_dir = make_temp_dir();
+    ListService service(temp_dir);
+    ListConfig inline_only;
+    inline_only.ip_cidrs = std::vector<std::string>{"10.0.0.0/8"};
+    Config config;
+    config.lists = std::map<std::string, ListConfig>{{"inline", inline_only}};
+
+    const auto result = service.refresh_remote_lists(config, OutboundMarkMap{});
+    CHECK_FALSE(result.any_refreshed());
+    CHECK_FALSE(result.any_failed());
+    const auto uncached = service.download_uncached(config, OutboundMarkMap{});
+    CHECK_FALSE(uncached.any_refreshed());
+    std::filesystem::remove_all(temp_dir);
+}
 
 TEST_CASE("select_remote_list_targets: refresh-all selects only URL-backed lists") {
     Config config;
