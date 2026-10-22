@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <sys/socket.h>  // AF_INET / AF_INET6
 #include <thread>
@@ -365,4 +366,56 @@ TEST_CASE("conntrack_flush does not invalidate non-PBR flows (e.g. LAN-LAN, publ
     REQUIRE(deleted_blobs->size() == 1);
     // The ONLY blob we should have deleted is the YouTube one (0xAA).
     CHECK((*deleted_blobs)[0] == 0xAA);
+}
+
+TEST_CASE("conntrack_flush reports a failed walk as -1 instead of zero deletions") {
+    ConntrackFlusher flusher(
+        nullptr,
+        [](const auto&) { throw std::runtime_error("conntrack netlink socket unavailable"); },
+        [](const ConntrackFlusher::ConntrackEntry&) { return true; },
+        [](const std::vector<std::string>&) { return make_snapshot({"1.2.3.4"}); });
+
+    CHECK(flusher.flush_sync() == -1);
+}
+
+TEST_CASE("conntrack_flush hands the pass result to the completion callback") {
+    BlockingExecutor executor(1, 4);
+    std::vector<ConntrackFlusher::ConntrackEntry> live_entries = {
+        make_entry(AF_INET, "1.2.3.4"),
+        make_entry(AF_INET, "8.8.8.8"),
+    };
+    ConntrackFlusher flusher(
+        &executor,
+        [live_entries](const auto& on_entry) {
+            for (const auto& e : live_entries) {
+                if (!on_entry(e)) return;
+            }
+        },
+        [](const ConntrackFlusher::ConntrackEntry&) { return true; },
+        [](const std::vector<std::string>&) { return make_snapshot({"1.2.3.4"}); });
+
+    std::atomic<int> calls{0};
+    std::atomic<int> reported{-100};
+    CHECK(flusher.flush_async({"kpbr4_test"}, [&](int result) {
+        reported.store(result);
+        calls.fetch_add(1);
+    }) == 1);
+    wait_for_count(calls, 1);
+    CHECK(calls.load() == 1);
+    CHECK(reported.load() == 1);
+
+    // A failing pass reports -1, so the caller can retry it.
+    ConntrackFlusher failing(
+        &executor,
+        [](const auto&) { throw std::runtime_error("conntrack dump failed"); },
+        [](const ConntrackFlusher::ConntrackEntry&) { return true; },
+        [](const std::vector<std::string>&) { return make_snapshot({"1.2.3.4"}); });
+    CHECK(failing.flush_async({}, [&](int result) {
+        reported.store(result);
+        calls.fetch_add(1);
+    }) == 1);
+    wait_for_count(calls, 2);
+    executor.shutdown();
+    CHECK(calls.load() == 2);
+    CHECK(reported.load() == -1);
 }

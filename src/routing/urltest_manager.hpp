@@ -27,8 +27,11 @@ struct UrltestState {
     std::uint64_t generation{0};
 };
 
-// Callback invoked when the selected outbound changes for a urltest.
-// Parameters: (urltest_tag, new_child_outbound_tag)
+// Callback invoked after every committed probe round with the currently
+// selected child, whether it changed or not: the daemon compares it with the
+// child its routing was built for, so a switch whose apply failed (and was
+// rolled back) is retried by the next round.
+// Parameters: (urltest_tag, selected_child_outbound_tag)
 // Guaranteed to be called without any UrltestManager lock held.
 using UrltestChangeCallback = std::function<void(const std::string&, const std::string&)>;
 // Hands a finished probe round to the control thread, which then calls
@@ -56,9 +59,8 @@ public:
     UrltestManager(const UrltestManager&) = delete;
     UrltestManager& operator=(const UrltestManager&) = delete;
 
-    // Register a urltest outbound, run the initial URL test, and schedule
-    // periodic retests. on_change_ is NOT called for the initial selection —
-    // call get_selected() after this returns to read the initial value.
+    // Register a urltest outbound, queue the initial URL test, and schedule
+    // periodic retests. on_change_ reports the selection once a round commits.
     void register_urltest(const Outbound& ut);
 
     // Run tests immediately for a specific urltest outbound (e.g. on SIGUSR1).

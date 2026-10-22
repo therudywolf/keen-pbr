@@ -15,6 +15,7 @@
 #include "../routing/autoheal_worker.hpp"
 #include "../routing/conntrack_flush.hpp"
 #include "../routing/urltest_manager.hpp"
+#include "../routing/urltest_switch.hpp"
 #include "../util/ipv6_support.hpp"
 #include "../util/time_utils.hpp"
 #include "../util/cron.hpp"
@@ -76,6 +77,7 @@ void Daemon::stop_routing_runtime() {
     runtime_generation_.fetch_add(1, std::memory_order_acq_rel);
     cancel_startup_list_retry();
     cancel_pending_runtime_refresh("dropped: routing runtime stopped");
+    cancel_urltest_conntrack_flush_retries();
 
     if (urltest_manager_) {
         urltest_manager_->clear();
@@ -174,9 +176,45 @@ void Daemon::download_uncached_lists() {
 
 void Daemon::handle_urltest_selection_change(const std::string& urltest_tag,
                                              const std::string& new_child_tag) {
-    post_control_task([this, urltest_tag, new_child_tag]() {
+    const auto runtime_generation = runtime_generation_.load(std::memory_order_acquire);
+    post_control_task([this, urltest_tag, new_child_tag, runtime_generation]() {
         auto& log = Logger::instance();
-        log.info("Urltest '{}' selected outbound: '{}'", urltest_tag, new_child_tag);
+        if (runtime_generation != runtime_generation_.load(std::memory_order_acquire) ||
+            !routing_runtime_active_) {
+            log.trace("urltest_selection_skip",
+                      "tag={} reason=stale_runtime",
+                      urltest_tag);
+            return;
+        }
+
+        // The manager reports the selection after every probe round; only a
+        // child different from the one routing was built for needs work.
+        const auto applied_selections = firewall_state_.get_urltest_selections();
+        const auto applied_it = applied_selections.find(urltest_tag);
+        const bool had_applied_entry = applied_it != applied_selections.end();
+        const std::string old_child_tag = had_applied_entry ? applied_it->second : std::string{};
+        if (old_child_tag == new_child_tag) {
+            return;
+        }
+
+        bool old_child_healthy = false;
+        if (!old_child_tag.empty() && urltest_manager_) {
+            if (const auto state = urltest_manager_->get_state(urltest_tag)) {
+                const auto result = state->last_results.find(old_child_tag);
+                const auto breaker = state->circuit_breakers.find(old_child_tag);
+                const bool breaker_open = breaker != state->circuit_breakers.end() &&
+                    breaker->second.state(old_child_tag) == CircuitState::open;
+                old_child_healthy = !breaker_open && result != state->last_results.end() &&
+                                    result->second.success;
+            }
+        }
+        const auto reason = classify_urltest_switch(!old_child_tag.empty(), old_child_healthy);
+        log.info("Urltest '{}' selected outbound: '{}' (previous: '{}', reason: {})",
+                 urltest_tag,
+                 new_child_tag,
+                 old_child_tag.empty() ? "(none)" : old_child_tag,
+                 urltest_switch_reason_name(reason));
+
         firewall_state_.set_urltest_selection(urltest_tag, new_child_tag);
         try {
             route_table_.clear();
@@ -186,20 +224,142 @@ void Daemon::handle_urltest_selection_change(const std::string& urltest_tag,
             publish_runtime_state();
             log.info("Routing and firewall rebuilt after urltest change.");
         } catch (const std::exception& e) {
-            log.error("Error rebuilding routing/firewall after urltest change: {}", e.what());
+            // The rebuild is not atomic: it may have removed routes or rules
+            // before failing. Restore the state of the applied child; the
+            // next probe round reports the new child again and retries.
+            if (had_applied_entry) {
+                firewall_state_.set_urltest_selection(urltest_tag, old_child_tag);
+            } else {
+                firewall_state_.clear_urltest_selection(urltest_tag);
+            }
+            try {
+                route_table_.clear();
+                policy_rules_.clear();
+                setup_static_routing();
+                apply_firewall(FirewallApplyMode::PreserveSets);
+                publish_runtime_state();
+                log.error("Urltest '{}' switch to '{}' failed; restored '{}': {}",
+                          urltest_tag,
+                          new_child_tag,
+                          old_child_tag.empty() ? "(none)" : old_child_tag,
+                          e.what());
+            } catch (const std::exception& rollback_error) {
+                log.error("Urltest '{}' switch to '{}' failed: {}; restoring '{}' failed too: {}",
+                          urltest_tag,
+                          new_child_tag,
+                          e.what(),
+                          old_child_tag.empty() ? "(none)" : old_child_tag,
+                          rollback_error.what());
+            }
+            // Routing did not move, so the flows are where they were.
+            return;
         }
+
         // Urltest swap routed an outbound to a different interface; flows
         // that were already pinned to the previous nexthop via FASTNAT
         // would otherwise keep using the old path until they expire. Only
         // that outbound's destinations moved, so scope the flush to its sets
         // — an unscoped flush would drop every other PBR-routed session too.
-        if (conntrack_flusher_) {
-            auto scoped = kpbr_set_names_for_outbound(config_, urltest_tag);
-            if (!scoped.empty()) {
-                conntrack_flusher_->flush_async(std::move(scoped));
-            }
-        }
+        flush_conntrack_after_urltest_switch(urltest_tag);
     }, "urltest-selection-change:" + urltest_tag);
+}
+
+void Daemon::flush_conntrack_after_urltest_switch(const std::string& urltest_tag) {
+    // A newer switch supersedes a retry still pending for the previous one:
+    // the new flush covers the same sets.
+    auto& retry = urltest_flush_retries_[urltest_tag];
+    if (retry.task_id >= 0) {
+        scheduler_->cancel(retry.task_id);
+        retry.task_id = -1;
+    }
+    retry.switch_id = next_urltest_switch_id_++;
+    start_urltest_conntrack_flush(urltest_tag, retry.switch_id, 0);
+}
+
+void Daemon::start_urltest_conntrack_flush(const std::string& urltest_tag,
+                                           std::uint64_t switch_id,
+                                           unsigned attempt) {
+    auto scoped = conntrack_flusher_
+        ? kpbr_set_names_for_outbound(config_, urltest_tag)
+        : std::vector<std::string>{};
+    if (scoped.empty()) {
+        urltest_flush_retries_.erase(urltest_tag);
+        return;
+    }
+
+    const auto generation = runtime_generation_.load(std::memory_order_acquire);
+    const int queued = conntrack_flusher_->flush_async(
+        std::move(scoped),
+        [this, urltest_tag, switch_id, attempt, generation](int result) {
+            // Executor thread: hand the result back to the control thread.
+            post_control_task(
+                [this, urltest_tag, switch_id, attempt, generation, result]() {
+                    if (generation != runtime_generation_.load(std::memory_order_acquire)) {
+                        return;
+                    }
+                    handle_urltest_conntrack_flush_result(urltest_tag, switch_id, attempt, result);
+                },
+                "urltest-conntrack-flush-result:" + urltest_tag);
+        });
+    if (queued == 0) {
+        handle_urltest_conntrack_flush_result(urltest_tag, switch_id, attempt, -1);
+    }
+}
+
+void Daemon::handle_urltest_conntrack_flush_result(const std::string& urltest_tag,
+                                                   std::uint64_t switch_id,
+                                                   unsigned attempt,
+                                                   int result) {
+    auto& log = Logger::instance();
+    auto it = urltest_flush_retries_.find(urltest_tag);
+    if (it == urltest_flush_retries_.end() || it->second.switch_id != switch_id) {
+        return; // a newer switch took over
+    }
+
+    if (result >= 0) {
+        if (attempt > 0) {
+            log.info("Conntrack flush after urltest '{}' switch succeeded on retry {}",
+                     urltest_tag,
+                     attempt);
+        }
+        urltest_flush_retries_.erase(it);
+        return;
+    }
+
+    if (attempt >= kMaxUrltestFlushRetries) {
+        log.warn("Conntrack flush after urltest '{}' switch failed {} times; giving up, "
+                 "flows on the old path end on their own",
+                 urltest_tag,
+                 attempt + 1);
+        urltest_flush_retries_.erase(it);
+        return;
+    }
+
+    const auto delay = urltest_flush_retry_delay(attempt);
+    log.warn("Conntrack flush after urltest '{}' switch failed; retrying in {}s",
+             urltest_tag,
+             delay.count());
+    it->second.task_id = scheduler_->schedule_oneshot(
+        delay,
+        [this, urltest_tag, switch_id, attempt]() {
+            auto retry = urltest_flush_retries_.find(urltest_tag);
+            if (retry == urltest_flush_retries_.end() || retry->second.switch_id != switch_id) {
+                return;
+            }
+            retry->second.task_id = -1;
+            start_urltest_conntrack_flush(urltest_tag, switch_id, attempt + 1);
+        },
+        "urltest-conntrack-flush-retry:" + urltest_tag);
+}
+
+void Daemon::cancel_urltest_conntrack_flush_retries() {
+    for (auto& [tag, retry] : urltest_flush_retries_) {
+        (void)tag;
+        if (retry.task_id >= 0) {
+            scheduler_->cancel(retry.task_id);
+        }
+    }
+    urltest_flush_retries_.clear();
 }
 
 bool Daemon::commit_urltest_probe_results(const std::string& urltest_tag,
@@ -727,6 +887,7 @@ void Daemon::apply_prepared_runtime_inputs(PreparedRuntimeInputs prepared) {
     cancel_startup_list_retry();
     // The apply below rebuilds routes and rules from scratch.
     cancel_pending_runtime_refresh("covered by the config apply");
+    cancel_urltest_conntrack_flush_retries();
     if (keenetic_dns_refresh_task_id_ >= 0) {
         scheduler_->cancel(keenetic_dns_refresh_task_id_);
         keenetic_dns_refresh_task_id_ = -1;

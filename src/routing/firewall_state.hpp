@@ -42,6 +42,9 @@ public:
     void set_urltest_selection(const std::string& urltest_tag,
                                const std::string& child_tag);
 
+    // Forget the selection of a urltest (no child applied).
+    void clear_urltest_selection(const std::string& urltest_tag);
+
     // Get current rule state
     const std::vector<RuleState>& get_rules() const;
 

@@ -14,6 +14,7 @@
 #include <memory>
 #include <netinet/in.h>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <utility>
@@ -380,7 +381,8 @@ ConntrackFlusher::ConntrackFlusher(BlockingExecutor* executor,
       deleter_(std::move(deleter)),
       snapshot_provider_(std::move(snapshot_provider)) {}
 
-int ConntrackFlusher::flush_async(std::vector<std::string> only_sets) {
+int ConntrackFlusher::flush_async(std::vector<std::string> only_sets,
+                                  FlushDoneCallback on_done) {
     if (!executor_) {
         // Defensive: a daemon-less direct caller (tests use flush_sync) won't
         // hit this; production callers always supply the daemon's executor.
@@ -390,25 +392,39 @@ int ConntrackFlusher::flush_async(std::vector<std::string> only_sets) {
     }
     const bool posted = executor_->try_post(
         "conntrack-flush",
-        [this, only_sets = std::move(only_sets)]() {
+        [this, only_sets = std::move(only_sets), on_done = std::move(on_done)]() {
+            int result = -1;
             try {
-                const int deleted = flush_sync(only_sets);
-                if (deleted < 0) {
+                result = flush_sync(only_sets);
+                if (result < 0) {
                     Logger::instance().verbose(
                         "conntrack_flush: pass aborted (netlink unavailable)");
-                } else if (deleted > 0) {
+                } else if (result > 0) {
                     Logger::instance().info(
-                        "conntrack_flush: deleted {} stale entries", deleted);
+                        "conntrack_flush: deleted {} stale entries", result);
                 } else {
                     Logger::instance().trace("conntrack_flush_done",
                                              "deleted=0");
                 }
             } catch (const std::exception& e) {
+                result = -1;
                 Logger::instance().warn(
                     "conntrack_flush: pass failed: {}", e.what());
             } catch (...) {
+                result = -1;
                 Logger::instance().warn(
                     "conntrack_flush: pass failed: unknown error");
+            }
+            if (on_done) {
+                try {
+                    on_done(result);
+                } catch (const std::exception& e) {
+                    Logger::instance().warn(
+                        "conntrack_flush: completion callback failed: {}", e.what());
+                } catch (...) {
+                    Logger::instance().warn(
+                        "conntrack_flush: completion callback failed: unknown error");
+                }
             }
         });
     if (!posted) {
@@ -431,32 +447,41 @@ int ConntrackFlusher::flush_sync(const std::vector<std::string>& only_sets) {
     }
 
     std::atomic<int> deleted{0};
-    walker_([&](const ConntrackEntry& entry) {
-        if (entry.original_dst_ip.empty()) {
-            return true;
-        }
-        bool match = false;
-        try {
-            match = kpbr_members->contains(entry.original_dst_ip);
-        } catch (const std::exception&) {
-            // contains() throws on parser errors; treat as a non-match.
-            match = false;
-        }
-        if (!match) {
-            return true;
-        }
-        try {
-            if (deleter_(entry)) {
-                deleted.fetch_add(1, std::memory_order_relaxed);
+    try {
+        walker_([&](const ConntrackEntry& entry) {
+            if (entry.original_dst_ip.empty()) {
+                return true;
             }
-        } catch (const std::exception& e) {
-            Logger::instance().trace("conntrack_flush_delete_error",
-                                     "dst={} error={}",
-                                     entry.original_dst_ip,
-                                     e.what());
-        }
-        return true;
-    });
+            bool match = false;
+            try {
+                match = kpbr_members->contains(entry.original_dst_ip);
+            } catch (const std::exception&) {
+                // contains() throws on parser errors; treat as a non-match.
+                match = false;
+            }
+            if (!match) {
+                return true;
+            }
+            try {
+                if (deleter_(entry)) {
+                    deleted.fetch_add(1, std::memory_order_relaxed);
+                }
+            } catch (const std::exception& e) {
+                Logger::instance().trace("conntrack_flush_delete_error",
+                                         "dst={} error={}",
+                                         entry.original_dst_ip,
+                                         e.what());
+            }
+            return true;
+        });
+    } catch (const std::exception& e) {
+        // The walk did not complete (netlink unavailable, dump error): the
+        // pass failed even if some entries were deleted before it stopped.
+        Logger::instance().verbose("conntrack_flush: walk failed after {} deletion(s): {}",
+                                   deleted.load(std::memory_order_relaxed),
+                                   e.what());
+        return -1;
+    }
     return deleted.load(std::memory_order_relaxed);
 }
 
@@ -549,11 +574,12 @@ void default_conntrack_walker(
     const std::function<bool(const ConntrackFlusher::ConntrackEntry&)>& on_entry) {
     NlSockPtr sock = open_nfnl_socket();
     if (!sock) {
-        return; // already logged
+        // Already logged in open_nfnl_socket.
+        throw std::runtime_error("conntrack netlink socket unavailable");
     }
     if (!walk_conntrack_dump(sock.get(), on_entry)) {
         // Errors already logged in walk_conntrack_dump.
-        return;
+        throw std::runtime_error("conntrack dump failed");
     }
 }
 

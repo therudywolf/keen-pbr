@@ -84,9 +84,15 @@ public:
                      ConntrackDeleter deleter,
                      KpbrIpsetSnapshotProvider snapshot_provider);
 
+    // Receives the flush_sync() result of an async pass (entries deleted, or
+    // -1 when the pass failed). Runs on the executor thread.
+    using FlushDoneCallback = std::function<void(int result)>;
+
     // Submit one flush pass. Returns the number of work items queued (0 or 1,
     // since the walk is one task — keeps the executor queue from being flooded
     // by repeated SIGUSR1 storms). Non-blocking; work runs on the executor.
+    // `on_done`, when given, is called once the pass has run (not when the
+    // pass could not be queued: then the return value is 0).
     //
     // `only_sets` scopes the flush to those set names. Pass the sets whose
     // routing actually changed: a flush is a forced disconnect for every
@@ -94,10 +100,12 @@ public:
     // SSH, streaming) to EVERY destination the daemon routes, whenever any
     // single list is edited. An empty vector keeps the "all kpbr* sets"
     // behaviour and is only correct when the whole ruleset is rebuilt.
-    int flush_async(std::vector<std::string> only_sets = {});
+    int flush_async(std::vector<std::string> only_sets = {},
+                    FlushDoneCallback on_done = {});
 
     // Run one flush pass synchronously. Returns the number of conntrack
-    // entries deleted, or -1 on hard failure (e.g. netlink unavailable).
+    // entries deleted, or -1 on hard failure (no ipset snapshot, netlink
+    // unavailable, conntrack dump failed — a walker that throws).
     // Exposed for unit tests; production callers should use flush_async().
     int flush_sync(const std::vector<std::string>& only_sets = {});
 
@@ -117,8 +125,9 @@ std::unique_ptr<IpSet> default_kpbr_ipset_snapshot(
 
 // Default netlink-backed conntrack walker. Opens a NETLINK_NETFILTER socket,
 // issues an IPCTNL_MSG_CT_GET dump, parses each entry, and invokes the
-// callback. Logs a warning and returns silently if the socket cannot be
-// opened (kernel without NF_CONNTRACK_NETLINK).
+// callback. Throws std::runtime_error (after logging a warning) when the
+// socket cannot be opened (kernel without NF_CONNTRACK_NETLINK) or the dump
+// fails, so flush_sync() reports the pass as failed instead of "0 deleted".
 void default_conntrack_walker(
     const std::function<bool(const ConntrackFlusher::ConntrackEntry&)>& on_entry);
 

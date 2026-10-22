@@ -173,7 +173,9 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
                              selection_changed ? "true" : "false",
                              new_selected);
 
-    if (selection_changed && on_change_) {
+    // Reported after every round, not only on a change: see
+    // UrltestChangeCallback.
+    if (on_change_) {
         on_change_(urltest_tag, new_selected);
     }
 

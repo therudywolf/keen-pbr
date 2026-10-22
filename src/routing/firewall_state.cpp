@@ -11,6 +11,10 @@ void FirewallState::set_urltest_selection(const std::string& urltest_tag,
     urltest_selections_[urltest_tag] = child_tag;
 }
 
+void FirewallState::clear_urltest_selection(const std::string& urltest_tag) {
+    urltest_selections_.erase(urltest_tag);
+}
+
 const std::vector<RuleState>& FirewallState::get_rules() const {
     return rules_;
 }

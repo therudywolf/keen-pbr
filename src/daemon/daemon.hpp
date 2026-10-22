@@ -188,6 +188,18 @@ private:
     void register_urltest_outbounds();
     void handle_urltest_selection_change(const std::string& urltest_tag,
                                          const std::string& new_child_tag);
+    // Conntrack flush after a urltest switch, with a bounded retry when the
+    // pass fails (5 s, 15 s, 45 s). A newer switch of the same urltest, a
+    // config apply and a runtime stop cancel a pending retry.
+    void flush_conntrack_after_urltest_switch(const std::string& urltest_tag);
+    void start_urltest_conntrack_flush(const std::string& urltest_tag,
+                                       std::uint64_t switch_id,
+                                       unsigned attempt);
+    void handle_urltest_conntrack_flush_result(const std::string& urltest_tag,
+                                               std::uint64_t switch_id,
+                                               unsigned attempt,
+                                               int result);
+    void cancel_urltest_conntrack_flush_retries();
     bool commit_urltest_probe_results(const std::string& urltest_tag,
                                       std::uint64_t probe_generation,
                                       std::map<std::string, URLTestResult> results,
@@ -405,6 +417,14 @@ private:
     // next packet re-evaluates routing instead of riding a stale FASTNAT mark.
     // See ConntrackFlusher for the rationale.
     std::unique_ptr<ConntrackFlusher> conntrack_flusher_;
+    // Latest switch per urltest whose conntrack flush is still running or
+    // waiting for a retry. switch_id tells a stale result from a current one.
+    struct UrltestFlushRetry {
+        std::uint64_t switch_id{0};
+        int task_id{-1};
+    };
+    std::map<std::string, UrltestFlushRetry> urltest_flush_retries_;
+    std::uint64_t next_urltest_switch_id_{1};
     BlockingExecutor blocking_executor_{2, 64};
     std::atomic<std::uint64_t> runtime_generation_{1};
     std::atomic<bool> remote_list_refresh_inflight_{false};
