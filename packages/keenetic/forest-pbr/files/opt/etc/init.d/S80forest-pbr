@@ -300,8 +300,12 @@ download_lists() {
 #
 # When started by rc.unslung we therefore only probe RCI (to record whether
 # the stall is present) and re-launch the start sequence in its own session
-# via start-stop-daemon -b, letting rc.unslung return immediately.
+# via start-stop-daemon -b, letting rc.unslung return immediately. The
+# detached sequence starts the daemon right away but holds the dnsmasq
+# reapply until that rc.unslung has exited (and NDM has dropped the lock),
+# for at most BOOT_PARENT_WAIT_SECONDS.
 BOOT_LOG="/opt/var/log/forest-pbr-boot.log"
+BOOT_PARENT_WAIT_SECONDS=180
 
 boot_log() {
     printf '%s up=%s %s\n' "$(date '+%F %T')" "$(cut -d' ' -f1 /proc/uptime)" "$1" >> "$BOOT_LOG"
@@ -328,20 +332,61 @@ probe_rci() {
 }
 
 detach_boot_start() {
+    # The rc.unslung to wait for: our parent, or this very shell when
+    # rc.unslung sourced the script (see launched_from_opkg_initrc).
+    local boot_parent="$PPID"
+
+    case "$0" in
+        *rc.unslung*) boot_parent="$$" ;;
+    esac
+
     mkdir -p "$(dirname "$BOOT_LOG")" 2>/dev/null || true
     [ -f "$BOOT_LOG" ] && tail -n 200 "$BOOT_LOG" > "$BOOT_LOG.tmp" && mv "$BOOT_LOG.tmp" "$BOOT_LOG"
-    boot_log "=== $1 from rc.unslung, detaching"
+    boot_log "=== $1 from rc.unslung (pid $boot_parent), detaching"
     probe_rci show/version
     probe_rci show/dns-proxy
-    FOREST_PBR_DETACHED=1 start-stop-daemon -S -b -n forest-pbr-boot \
+    FOREST_PBR_DETACHED=1 FOREST_PBR_BOOT_PARENT="$boot_parent" \
+        start-stop-daemon -S -b -n forest-pbr-boot \
         -x /opt/bin/sh -- /opt/etc/init.d/S80forest-pbr "$1"
     log "Start sequence detached from rc.unslung (see $BOOT_LOG)"
 }
 
-reapply_dnsmasq_config_logged() {
+# True while PID $1 is still the rc.unslung process, not a recycled PID.
+boot_parent_running() {
+    tr '\0' ' ' 2>/dev/null < "/proc/$1/cmdline" | grep -q 'rc\.unslung'
+}
+
+wait_for_boot_parent_exit() {
+    local pid="$FOREST_PBR_BOOT_PARENT"
+    local waited=0
+
+    [ -n "$pid" ] || return 0
+    while boot_parent_running "$pid"; do
+        if [ "$waited" -ge "$BOOT_PARENT_WAIT_SECONDS" ]; then
+            boot_log "rc.unslung (pid $pid) still running after ${waited}s, not waiting any longer"
+            log_error "rc.unslung is still running after ${waited}s; reapplying the dnsmasq config anyway"
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    boot_log "rc.unslung (pid $pid) has exited (waited ${waited}s)"
+}
+
+# POSTCMD of the detached start. rc.func runs POSTCMD as a plain word-split
+# command with its output sent to /dev/null, hence one function that reports
+# through the boot log and syslog.
+boot_reapply_dnsmasq_config() {
+    local rc
+
+    wait_for_boot_parent_exit
+    probe_rci show/dns-proxy
     boot_log "reapply_dnsmasq_config begin"
     reapply_dnsmasq_config
-    boot_log "reapply_dnsmasq_config end rc=$?"
+    rc=$?
+    boot_log "reapply_dnsmasq_config end rc=$rc"
+    [ "$rc" -eq 0 ] || log_error "Reapplying the dnsmasq config after boot failed (rc=$rc, see $BOOT_LOG)"
+    return "$rc"
 }
 
 FOREST_PBR_SKIP_RC_FUNC=no
@@ -370,7 +415,7 @@ case "$1" in
             boot_log "detached start: download_lists"
             download_lists
             boot_log "detached start: launching daemon"
-            POSTCMD="reapply_dnsmasq_config_logged"
+            POSTCMD="boot_reapply_dnsmasq_config"
         else
             prepare_start
             download_lists
