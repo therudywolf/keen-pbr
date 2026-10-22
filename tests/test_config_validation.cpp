@@ -815,6 +815,31 @@ TEST_CASE("route inbound_interfaces: duplicate entry is rejected") {
     CHECK(issues.front().path == "route.inbound_interfaces[1]");
 }
 
+TEST_CASE("route inbound_interfaces: restore control characters are rejected") {
+    const auto issues = parse_issues(
+        "{\"route\":{\"inbound_interfaces\":[\"br0\\n-A KeenPbrTable -j DROP\"],"
+        "\"rules\":[{\"list\":[\"ads\"],\"outbound\":\"vpn\"}]}}");
+    REQUIRE_FALSE(issues.empty());
+    CHECK(issues.front().path == "route.inbound_interfaces[0]");
+}
+
+TEST_CASE("route inbound_interfaces: Linux-invalid names are rejected") {
+    for (const std::string& iface : {".", "..", "bad/name", "bad:name",
+                                     "bad name", "br0 ", "0123456789abcdef"}) {
+        const auto issues = parse_issues(
+            "{\"route\":{\"inbound_interfaces\":[\"" + iface +
+            "\"],\"rules\":[{\"list\":[\"ads\"],\"outbound\":\"vpn\"}]}}");
+        CAPTURE(iface);
+        REQUIRE_FALSE(issues.empty());
+        CHECK(issues.front().path == "route.inbound_interfaces[0]");
+    }
+}
+
+TEST_CASE("route inbound_interfaces: router interface names and future interfaces are accepted") {
+    CHECK_NOTHROW(parse_test_config(
+        R"({"route":{"inbound_interfaces":["br0","ppp0","nwg1","nwg2","nwg0","nwg3","vpn_future@1","0123456789abcde"],"rules":[]}})"));
+}
+
 // =============================================================================
 // is_reserved_table
 // =============================================================================
