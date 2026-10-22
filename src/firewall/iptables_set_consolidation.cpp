@@ -2,6 +2,8 @@
 
 #include "../util/format_compat.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
@@ -81,6 +83,41 @@ struct RuleGroup {
 
 std::string combined_set_name(size_t ordinal) {
     return keen_pbr3::format("{}{}", kCombinedSetPrefix, ordinal);
+}
+
+bool needs_negated_address_set(bool negated, const std::vector<std::string>& addrs) {
+    return negated && addrs.size() > 1;
+}
+
+std::string negated_address_set_name(bool ipv6, const std::vector<std::string>& addrs) {
+    std::vector<std::string> canonical;
+    canonical.reserve(addrs.size());
+    for (const auto& addr : addrs) {
+        canonical.push_back(normalize_addr(addr));
+    }
+    std::sort(canonical.begin(), canonical.end());
+    canonical.erase(std::unique(canonical.begin(), canonical.end()), canonical.end());
+
+    // FNV-1a, 64 bit: short, stable across builds and architectures.
+    uint64_t hash = 14695981039346656037ULL;
+    const auto mix = [&hash](unsigned char byte) {
+        hash ^= byte;
+        hash *= 1099511628211ULL;
+    };
+    for (const auto& addr : canonical) {
+        for (const char ch : addr) {
+            mix(static_cast<unsigned char>(ch));
+        }
+        mix(static_cast<unsigned char>(','));
+    }
+    return keen_pbr3::format("{}{:016x}",
+                             ipv6 ? kNegatedAddressSetPrefix6 : kNegatedAddressSetPrefix4,
+                             hash);
+}
+
+bool is_negated_address_set_name(const std::string& name) {
+    return name.rfind(kNegatedAddressSetPrefix4, 0) == 0 ||
+           name.rfind(kNegatedAddressSetPrefix6, 0) == 0;
 }
 
 std::vector<ConsolidatedRule> consolidate_iptables_rules(

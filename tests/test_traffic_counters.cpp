@@ -266,3 +266,22 @@ TEST_CASE("set_traffic: malformed lines are skipped without crashing") {
     CHECK(result[0].packets == 100u);
     CHECK(result[0].bytes == 200u);
 }
+
+TEST_CASE("set_traffic: a negated address-list match is not the rule's set") {
+    const char* fixture =
+        "Chain KeenPbrTable (1 references)\n"
+        "    pkts      bytes target     prot opt in     out     source               destination\n"
+        "     500    70000 MARK       all  --  br0    *       0.0.0.0/0            0.0.0.0/0            match-set kpbrm_0 dst ! match-set kpbr4n_0123456789abcdef dst MARK xset 0x50000/0xff0000\n"
+        "      40     4000 MARK       all  --  br0    *       0.0.0.0/0            0.0.0.0/0            ! match-set kpbr4n_0123456789abcdef dst MARK xset 0x50000/0xff0000\n";
+
+    const auto result = parse_set_traffic(fixture);
+    REQUIRE(result.size() == 1);
+    CHECK(result[0].set_name == "kpbrm_0");
+    CHECK(result[0].packets == 500);
+    CHECK(find_set(result, "kpbr4n_0123456789abcdef") == nullptr);
+
+    // Per-outbound totals still include both rules.
+    const auto outbounds = parse_outbound_traffic(fixture, {{0x50000, "vpn"}});
+    REQUIRE(outbounds.size() == 1);
+    CHECK(outbounds[0].packets == 540);
+}

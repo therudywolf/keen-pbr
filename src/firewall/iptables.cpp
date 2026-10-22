@@ -76,27 +76,70 @@ void IptablesFirewall::create_ipset(const std::string& set_name, int family,
     created_sets_[set_name] = family;
 }
 
+std::string IptablesFirewall::declare_negated_address_set(bool ipv6,
+                                                          const std::vector<std::string>& addrs) {
+    const std::string name = negated_address_set_name(ipv6, addrs);
+    if (pending_negated_set_entries_.count(name) != 0) {
+        return name;
+    }
+
+    PendingSet ps;
+    ps.name = name;
+    ps.family_str = ipv6 ? "inet6" : "inet";
+    ps.timeout = 0;
+    pending_sets_.push_back(std::move(ps));
+    created_sets_[name] = ipv6 ? AF_INET6 : AF_INET;
+
+    // The set is named after its content, so `add -exist` keeps it exact on
+    // every apply mode; a 0.0.0.0/0 entry is split like in any list.
+    IpsetRestoreVisitor loader(pending_elements_[name], name);
+    for (const auto& addr : addrs) {
+        loader.on_entry(addr.find('/') != std::string::npos ? EntryType::Cidr : EntryType::Ip,
+                        addr);
+    }
+    pending_negated_set_entries_[name] = loader.count();
+    return name;
+}
+
 void IptablesFirewall::append_rules_for_family(bool ipv6,
                                                PendingRule::Action action,
                                                uint32_t fwmark,
                                                const FirewallRuleCriteria& criteria) {
-    const std::vector<std::string> any_addr{""};
     const auto filtered_src_addrs = criteria.src_addr.empty()
-        ? any_addr
+        ? std::vector<std::string>{}
         : filter_addrs_by_family(criteria.src_addr, ipv6);
     const auto filtered_dst_addrs = criteria.dst_addr.empty()
-        ? any_addr
+        ? std::vector<std::string>{}
         : filter_addrs_by_family(criteria.dst_addr, ipv6);
     if ((!criteria.src_addr.empty() && filtered_src_addrs.empty())
         || (!criteria.dst_addr.empty() && filtered_dst_addrs.empty())) {
         return;
     }
 
+    // The address alternatives of one side: none (any address), one rule per
+    // address (a positive list ORs its rules), or, for a negated list of
+    // several addresses, a single rule on the list's set: "not a" OR "not b"
+    // would match every packet.
+    const auto alternatives = [this, ipv6](const std::vector<std::string>& addrs,
+                                           bool negated) {
+        std::vector<std::vector<std::string>> out;
+        if (addrs.empty()) {
+            out.emplace_back();
+        } else if (needs_negated_address_set(negated, addrs)) {
+            out.push_back({declare_negated_address_set(ipv6, addrs)});
+        } else {
+            for (const auto& addr : addrs) {
+                out.push_back({addr});
+            }
+        }
+        return out;
+    };
+    const auto src_alternatives = alternatives(filtered_src_addrs, criteria.negate_src_addr);
+    const auto dst_alternatives = alternatives(filtered_dst_addrs, criteria.negate_dst_addr);
+
     for (const auto proto : expand_l4_protos_for_iptables(criteria)) {
-        const std::vector<std::string>& src_addrs = filtered_src_addrs;
-        const std::vector<std::string>& dst_addrs = filtered_dst_addrs;
-        for (const auto& src : src_addrs) {
-            for (const auto& dst : dst_addrs) {
+        for (const auto& src : src_alternatives) {
+            for (const auto& dst : dst_alternatives) {
                 PendingRule pr;
                 pr.ipv6     = ipv6;
                 pr.action   = action;
@@ -104,12 +147,8 @@ void IptablesFirewall::append_rules_for_family(bool ipv6,
                 pr.fwmark_mask = fwmark_mask();
                 pr.criteria = criteria;
                 pr.criteria.proto = proto;
-                pr.criteria.src_addr = src.empty()
-                    ? std::vector<std::string>{}
-                    : std::vector<std::string>{src};
-                pr.criteria.dst_addr = dst.empty()
-                    ? std::vector<std::string>{}
-                    : std::vector<std::string>{dst};
+                pr.criteria.src_addr = src;
+                pr.criteria.dst_addr = dst;
                 pending_rules_.push_back(std::move(pr));
             }
         }
@@ -362,11 +401,23 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
         iface_frags.push_back("");
     }
 
+    // A negated address list is carried as its set's name (see
+    // append_rules_for_family) and matched with a negated set match.
+    const auto addr_match = [](const char* flag,
+                               const char* direction,
+                               const std::vector<std::string>& addrs,
+                               bool negated) -> std::string {
+        if (addrs.empty()) {
+            return "";
+        }
+        if (is_negated_address_set_name(addrs[0])) {
+            return keen_pbr3::format(" -m set ! --match-set {} {}", addrs[0], direction);
+        }
+        return std::string(negated ? " !" : "") + " " + flag + " " + addrs[0];
+    };
     std::string addr_frag;
-    if (!pr.criteria.src_addr.empty())
-        addr_frag += std::string(pr.criteria.negate_src_addr ? " !" : "") + " -s " + pr.criteria.src_addr[0];
-    if (!pr.criteria.dst_addr.empty())
-        addr_frag += std::string(pr.criteria.negate_dst_addr ? " !" : "") + " -d " + pr.criteria.dst_addr[0];
+    addr_frag += addr_match("-s", "src", pr.criteria.src_addr, pr.criteria.negate_src_addr);
+    addr_frag += addr_match("-d", "dst", pr.criteria.dst_addr, pr.criteria.negate_dst_addr);
     std::vector<std::string> lines;
     lines.reserve(iface_frags.size() * 2);
     for (const auto proto : expand_l4_protos_for_iptables(pr.criteria)) {
@@ -493,6 +544,7 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
             firewall.pending_sets_.clear();
             firewall.pending_elements_.clear();
             firewall.pending_rules_.clear();
+            firewall.pending_negated_set_entries_.clear();
         }
     } pending_reset{*this};
 
@@ -736,8 +788,19 @@ void IptablesFirewall::apply_rules_only(bool effective_ipv6,
             throw FirewallRulesOnlyError("list:set " + pls.name + " is missing or changed");
         }
     }
-    if (!pending_elements_.empty()) {
-        throw FirewallRulesOnlyError("set elements were queued; refusing to change sets");
+    for (const auto& [name, buffer] : pending_elements_) {
+        (void)buffer;
+        // A negated address set is named after its content: when it exists
+        // with all its entries, its elements need not be loaded again.
+        const auto expected = pending_negated_set_entries_.find(name);
+        const auto it = live.find(name);
+        if (expected == pending_negated_set_entries_.end()) {
+            throw FirewallRulesOnlyError("set elements were queued; refusing to change sets");
+        }
+        if (it == live.end() ||
+            (it->second.entries.has_value() && *it->second.entries != expected->second)) {
+            throw FirewallRulesOnlyError("negated address set " + name + " is missing or changed");
+        }
     }
 
     // Rebuild each family's chain in one iptables-restore transaction: the
@@ -828,6 +891,7 @@ void IptablesFirewall::cleanup_impl() {
     pending_sets_.clear();
     pending_elements_.clear();
     pending_rules_.clear();
+    pending_negated_set_entries_.clear();
 }
 
 void IptablesFirewall::cleanup() {

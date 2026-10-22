@@ -163,7 +163,6 @@ struct ExpectedIptablesRule {
 std::vector<ExpectedIptablesRule> expand_expected_rule_states(
     const std::vector<RuleState>& expected) {
     std::vector<ExpectedIptablesRule> expanded;
-    const std::vector<std::string> any_addr{""};
 
     for (const auto& rs : expected) {
         if (rs.action_type == RuleActionType::Skip) continue;
@@ -183,10 +182,10 @@ std::vector<ExpectedIptablesRule> expand_expected_rule_states(
 
         for (const auto& [set_name, ipv6] : targets) {
             const auto filtered_src = rs.criteria.src_addr.empty()
-                ? any_addr
+                ? std::vector<std::string>{}
                 : filter_addrs_by_family(rs.criteria.src_addr, ipv6);
             const auto filtered_dst = rs.criteria.dst_addr.empty()
-                ? any_addr
+                ? std::vector<std::string>{}
                 : filter_addrs_by_family(rs.criteria.dst_addr, ipv6);
 
             if ((!rs.criteria.src_addr.empty() && filtered_src.empty()) ||
@@ -194,9 +193,29 @@ std::vector<ExpectedIptablesRule> expand_expected_rule_states(
                 continue;
             }
 
+            // Mirror the backend: one rule per address, except a negated
+            // list of several addresses, which is one rule on its set.
+            const bool family_v6 = ipv6;
+            const auto alternatives = [family_v6](const std::vector<std::string>& addrs,
+                                                  bool negated) {
+                std::vector<std::vector<std::string>> out;
+                if (addrs.empty()) {
+                    out.emplace_back();
+                } else if (needs_negated_address_set(negated, addrs)) {
+                    out.push_back({negated_address_set_name(family_v6, addrs)});
+                } else {
+                    for (const auto& addr : addrs) {
+                        out.push_back({addr});
+                    }
+                }
+                return out;
+            };
+            const auto src_alternatives = alternatives(filtered_src, rs.criteria.negate_src_addr);
+            const auto dst_alternatives = alternatives(filtered_dst, rs.criteria.negate_dst_addr);
+
             for (const auto proto : expand_l4_protos_for_iptables(rs.criteria)) {
-                for (const auto& src : filtered_src) {
-                    for (const auto& dst : filtered_dst) {
+                for (const auto& src : src_alternatives) {
+                    for (const auto& dst : dst_alternatives) {
                         ExpectedIptablesRule exp;
                         exp.set_name = set_name;
                         exp.ipv6 = ipv6;
@@ -204,12 +223,8 @@ std::vector<ExpectedIptablesRule> expand_expected_rule_states(
                         exp.fwmark = rs.fwmark;
                         exp.criteria = rs.criteria;
                         exp.criteria.proto = proto;
-                        exp.criteria.src_addr = src.empty()
-                            ? std::vector<std::string>{}
-                            : std::vector<std::string>{src};
-                        exp.criteria.dst_addr = dst.empty()
-                            ? std::vector<std::string>{}
-                            : std::vector<std::string>{dst};
+                        exp.criteria.src_addr = src;
+                        exp.criteria.dst_addr = dst;
                         expanded.push_back(std::move(exp));
                     }
                 }
@@ -343,7 +358,20 @@ ParsedIptablesState parse_iptables_s_for_family(const std::string& output,
                 continue;
             }
             if (tok == "--match-set" && i + 2 < tokens.size()) {
-                rule.set_name = tokens[i + 1];
+                // `! --match-set kpbr4n_<hash> dst` is a negated address
+                // list, kept as an address criterion; any other set is the
+                // rule's list set.
+                if (negate_next && is_negated_address_set_name(tokens[i + 1])) {
+                    if (tokens[i + 2] == "src") {
+                        rule.criteria.src_addr = {tokens[i + 1]};
+                        rule.criteria.negate_src_addr = true;
+                    } else {
+                        rule.criteria.dst_addr = {tokens[i + 1]};
+                        rule.criteria.negate_dst_addr = true;
+                    }
+                } else {
+                    rule.set_name = tokens[i + 1];
+                }
                 i += 2;
                 negate_next = false;
                 continue;

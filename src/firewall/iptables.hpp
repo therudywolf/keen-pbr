@@ -151,11 +151,16 @@ private:
     bool ipv6_backend_available() const;
     // Expand filter (proto, src_addr, dst_addr) into cross-product of PendingRules
     // and append them to out.  tcp/udp is split into two entries.  Multiple CIDRs
-    // in src_addr / dst_addr each become separate rules (OR semantics when combined).
+    // in src_addr / dst_addr each become separate rules (OR semantics when combined),
+    // except a negated list of several addresses: it stays one rule matching a
+    // kpbr4n_/kpbr6n_ set (see declare_negated_address_set).
     void append_rules_for_family(bool ipv6,
                                  PendingRule::Action action,
                                  uint32_t fwmark,
                                  const FirewallRuleCriteria& criteria);
+    // Queue the hash:net set that backs a negated address list (once per
+    // apply) and return its name.
+    std::string declare_negated_address_set(bool ipv6, const std::vector<std::string>& addrs);
 
     // Sets queued for creation, flushed by apply().
     std::vector<PendingSet> pending_sets_;
@@ -175,6 +180,9 @@ private:
     // Members each list:set was loaded with by the last full apply. A
     // RulesOnly apply may reuse a list:set only with exactly these members.
     std::map<std::string, std::vector<std::string>> applied_list_set_members_;
+
+    // Entries queued for each negated address set of the current apply.
+    std::map<std::string, size_t> pending_negated_set_entries_;
 
     // Track whether chain + jump rule exist for each protocol
     bool chain_v4_created_ = false;

@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include "../src/firewall/iptables_set_consolidation.hpp"
 #include "../src/firewall/iptables_verifier.hpp"
 #include "../src/firewall/nftables_verifier.hpp"
 #include "../src/util/safe_exec.hpp"
@@ -386,6 +387,62 @@ TEST_CASE("IptablesFirewallVerifier::verify_rules: mark rule ok") {
     CHECK(checks[0].set_name == "set1");
     CHECK(checks[0].actual_fwmark.has_value());
     CHECK(*checks[0].actual_fwmark == 65536u);
+}
+
+TEST_CASE("IptablesFirewallVerifier::verify_rules: negated address list matches its set rule") {
+    const std::string negated = negated_address_set_name(false, {"10.0.0.0/8", "192.168.0.0/16"});
+    const std::string chain_rules =
+        "-N KeenPbrTable\n"
+        "-A KeenPbrTable -m set --match-set set1 dst -m set ! --match-set " + negated +
+        " dst -j MARK --set-mark 65536\n";
+    const std::string prerouting =
+        "-P PREROUTING ACCEPT\n"
+        "-A PREROUTING -j KeenPbrTable\n";
+
+    auto runner = [&chain_rules, &prerouting](const std::vector<std::string>& args) -> CommandResult {
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "KeenPbrTable"})) {
+            return command_result(chain_rules);
+        }
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "PREROUTING"})) {
+            return command_result(prerouting);
+        }
+        return command_result({}, 1);
+    };
+    IptablesFirewallVerifier verifier(runner);
+
+    RuleState rs;
+    rs.rule_index = 0;
+    rs.list_names = {"mylist"};
+    rs.set_names = {"set1"};
+    rs.outbound_tag = "wan1";
+    rs.action_type = RuleActionType::Mark;
+    rs.fwmark = 65536u;
+    rs.criteria.dst_addr = {"192.168.0.0/16", "10.0.0.0/8"};
+    rs.criteria.negate_dst_addr = true;
+
+    auto checks = verifier.verify_rules({rs});
+    REQUIRE(checks.size() == 1);
+    CHECK(checks[0].status == CheckStatus::ok);
+    CHECK(checks[0].set_name == "set1");
+
+    // The old N-rule form is not what the backend installs any more.
+    const std::string expanded_rules =
+        "-N KeenPbrTable\n"
+        "-A KeenPbrTable -m set --match-set set1 dst ! -d 10.0.0.0/8 -j MARK --set-mark 65536\n"
+        "-A KeenPbrTable -m set --match-set set1 dst ! -d 192.168.0.0/16 -j MARK --set-mark 65536\n";
+    auto old_runner = [&expanded_rules, &prerouting](const std::vector<std::string>& args) -> CommandResult {
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "KeenPbrTable"})) {
+            return command_result(expanded_rules);
+        }
+        if (matches_args(args, {"iptables", "-t", "mangle", "-S", "PREROUTING"})) {
+            return command_result(prerouting);
+        }
+        return command_result({}, 1);
+    };
+    IptablesFirewallVerifier old_verifier(old_runner);
+    const auto old_checks = old_verifier.verify_rules({rs});
+    REQUIRE(old_checks.size() == 1);
+    CHECK(old_checks[0].status == CheckStatus::missing);
 }
 
 TEST_CASE("IptablesFirewallVerifier::verify_rules: mark rule missing") {

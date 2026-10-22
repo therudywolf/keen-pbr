@@ -4,6 +4,7 @@
 #include "../src/config/routing_state.hpp"
 #include "../src/firewall/ipset_restore_pipe.hpp"
 #include "../src/firewall/iptables.hpp"
+#include "../src/firewall/iptables_set_consolidation.hpp"
 #include "../src/lists/list_entry_visitor.hpp"
 
 #include <sstream>
@@ -13,6 +14,7 @@
 #include <string>
 #include <set>
 #include <tuple>
+#include <utility>
 #include <array>
 #include <algorithm>
 #include <sys/socket.h>
@@ -162,6 +164,26 @@ public:
 
     fw.append_rules_for_family(ipv6, mapped_action, fwmark, criteria);
     return IptablesFirewall::build_ipt_script(ipv6, fw.pending_rules_, prefilter);
+  }
+
+  // Mark rules for several list sets on one firewall instance, so their
+  // negated address sets and consolidation interact as in a real apply.
+  // Returns the iptables script and the ipset lines of the negated sets.
+  static std::pair<std::string, std::string> build_marked_list_rules(
+      bool ipv6, uint32_t fwmark,
+      const std::vector<std::pair<std::string, FirewallRuleCriteria>> &rules) {
+    IptablesFirewall fw;
+    for (auto [set_name, criteria] : rules) {
+      criteria.dst_set_name = set_name;
+      fw.created_sets_[set_name] = ipv6 ? AF_INET6 : AF_INET;
+      fw.append_rules_for_family(ipv6, IptablesFirewall::PendingRule::Mark, fwmark, criteria);
+    }
+    std::string set_lines;
+    for (const auto &ps : fw.pending_sets_) {
+      set_lines += IptablesFirewall::build_ipset_create_line(ps);
+      set_lines += fw.pending_elements_[ps.name].str();
+    }
+    return {IptablesFirewall::build_ipt_script(ipv6, fw.pending_rules_), set_lines};
   }
 
   static std::string build_proto_port_fragment(const std::string &proto,
@@ -1491,4 +1513,98 @@ TEST_CASE("plan_dynamic_sets: keep fitting dnsmasq sets, recreate changed ones")
   const auto v4_only = T::plan_dynamic_sets(listing, {{"kpbr6d_domains", "inet6", 600}}, false);
   CHECK(v4_only.keep.empty());
   CHECK(v4_only.destroy.empty());
+}
+
+// =============================================================================
+// Negated address lists ("!a,b")
+// =============================================================================
+
+namespace {
+
+size_t count_occurrences(const std::string &haystack, const std::string &needle) {
+  size_t count = 0;
+  for (size_t pos = haystack.find(needle); pos != std::string::npos;
+       pos = haystack.find(needle, pos + needle.size())) {
+    ++count;
+  }
+  return count;
+}
+
+} // namespace
+
+TEST_CASE("negated_address_set_name: content-addressed, order-insensitive, per family") {
+  const auto name = negated_address_set_name(false, {"10.0.0.0/8", "192.168.1.1/32"});
+  CHECK(name.rfind("kpbr4n_", 0) == 0);
+  CHECK(name.size() == std::string("kpbr4n_").size() + 16);
+  CHECK(name.size() <= 31);  // ipset name limit
+  CHECK(name == negated_address_set_name(false, {"192.168.1.1", "10.0.0.0/8"}));
+  CHECK(name != negated_address_set_name(false, {"10.0.0.0/8"}));
+  CHECK(negated_address_set_name(true, {"2001:db8::/32", "fd00::/8"}).rfind("kpbr6n_", 0) == 0);
+  CHECK(is_negated_address_set_name(name));
+  CHECK_FALSE(is_negated_address_set_name("kpbr4_list"));
+  CHECK_FALSE(needs_negated_address_set(true, {"10.0.0.0/8"}));
+  CHECK_FALSE(needs_negated_address_set(false, {"10.0.0.0/8", "10.1.0.0/16"}));
+  CHECK(needs_negated_address_set(true, {"10.0.0.0/8", "10.1.0.0/16"}));
+}
+
+TEST_CASE("build_ipt_script_for_rule: negated dest_addr list is one rule on a set, not N rules") {
+  FirewallRuleCriteria criteria;
+  criteria.dst_addr = {"10.0.0.0/8", "192.168.0.0/16"};
+  criteria.negate_dst_addr = true;
+  const auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x100, criteria, true);
+
+  const std::string set_name =
+      negated_address_set_name(false, {"10.0.0.0/8", "192.168.0.0/16"});
+  // N `! -d` rules OR together and match everything: none of them here.
+  CHECK(s.find("! -d") == std::string::npos);
+  CHECK(count_occurrences(s, "-j MARK") == 1);
+  CHECK(s.find("-m set --match-set pairwise_set dst -m set ! --match-set " + set_name +
+               " dst -j MARK --set-xmark 0x100/0xffffffff") != std::string::npos);
+}
+
+TEST_CASE("build_ipt_script_for_rule: negated src_addr list and single negations") {
+  FirewallRuleCriteria multi;
+  multi.src_addr = {"192.168.1.0/24", "192.168.2.0/24"};
+  multi.negate_src_addr = true;
+  const auto s = T::build_ipt_script_for_rule(false, Rule::Drop, 0, multi, false);
+  CHECK(s.find("-m set ! --match-set " +
+               negated_address_set_name(false, multi.src_addr) + " src -j DROP") !=
+        std::string::npos);
+  CHECK(s.find("! -s") == std::string::npos);
+
+  // One negated address keeps the plain form.
+  FirewallRuleCriteria single;
+  single.dst_addr = {"10.0.0.0/8"};
+  single.negate_dst_addr = true;
+  const auto plain = T::build_ipt_script_for_rule(false, Rule::Mark, 0x100, single, true);
+  CHECK(plain.find("! -d 10.0.0.0/8") != std::string::npos);
+  CHECK(plain.find("kpbr4n_") == std::string::npos);
+
+  // A positive list still ORs one rule per address.
+  FirewallRuleCriteria positive;
+  positive.dst_addr = {"10.0.0.0/8", "192.168.0.0/16"};
+  const auto ored = T::build_ipt_script_for_rule(false, Rule::Mark, 0x100, positive, true);
+  CHECK(ored.find(" -d 10.0.0.0/8") != std::string::npos);
+  CHECK(ored.find(" -d 192.168.0.0/16") != std::string::npos);
+  CHECK(ored.find("kpbr4n_") == std::string::npos);
+}
+
+TEST_CASE("negated address set: declared once with its entries, per family") {
+  FirewallRuleCriteria criteria;
+  criteria.dst_addr = {"10.0.0.0/8", "0.0.0.0/0", "2001:db8::/32"};
+  criteria.negate_dst_addr = true;
+  // Two list sets sharing the selector: consolidation folds them into one
+  // list:set rule, and the negated set is declared once.
+  const auto [script, set_lines] = T::build_marked_list_rules(
+      false, 0x100, {{"kpbr4_a", criteria}, {"kpbr4_b", criteria}});
+
+  const std::string set_name = negated_address_set_name(false, {"10.0.0.0/8", "0.0.0.0/0"});
+  CHECK(count_occurrences(set_lines, "create " + set_name + " hash:net family inet -exist\n") == 1);
+  CHECK(set_lines.find("add " + set_name + " 10.0.0.0/8 -exist\n") != std::string::npos);
+  // The /0 entry is split like in any list; the IPv6 address is not in the v4 set.
+  CHECK(set_lines.find("add " + set_name + " 0.0.0.0/1 -exist\n") != std::string::npos);
+  CHECK(set_lines.find("2001:db8") == std::string::npos);
+  CHECK(count_occurrences(script, "-j MARK") == 1);
+  CHECK(script.find("--match-set kpbrm_0 dst -m set ! --match-set " + set_name + " dst") !=
+        std::string::npos);
 }

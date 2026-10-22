@@ -61,6 +61,30 @@ constexpr const char* kCombinedSetPrefix = "kpbrm_";
 // Name of the n-th synthesized list:set (kpbrm_0, kpbrm_1, ...).
 std::string combined_set_name(size_t ordinal);
 
+// Negated address lists ("dest_addr": "!a,b").
+//
+// iptables cannot negate several addresses in one match: one `! -d a` rule
+// per address ORs together and matches every packet (a packet to `a` still
+// passes `! -d b`). A negated list of two or more addresses of one family is
+// therefore matched as `-m set ! --match-set kpbr4n_<hash> <dir>` on a
+// hash:net set holding exactly that list. The set is named after its
+// content, so equal lists share one set and its contents never change.
+//
+// Inside rule criteria such a list is carried as the single "address"
+// kpbr4n_<hash> / kpbr6n_<hash> (with the negate flag), both by the
+// backend and by the verifier, so consolidation and verification compare
+// like with like.
+constexpr const char* kNegatedAddressSetPrefix4 = "kpbr4n_";
+constexpr const char* kNegatedAddressSetPrefix6 = "kpbr6n_";
+
+// True when `addrs` (one family) must be matched through such a set.
+bool needs_negated_address_set(bool negated, const std::vector<std::string>& addrs);
+
+// kpbr4n_/kpbr6n_ + 16 hex digits of a hash of the sorted, normalized list.
+std::string negated_address_set_name(bool ipv6, const std::vector<std::string>& addrs);
+
+bool is_negated_address_set_name(const std::string& name);
+
 // Collapse list-backed rules sharing (family, verb, fwmark, selector) into one
 // list:set-backed rule each. Direct rules (no dst_set_name) and single-member
 // groups are emitted unchanged. Output order follows the first occurrence of

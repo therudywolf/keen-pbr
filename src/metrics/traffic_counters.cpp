@@ -137,9 +137,12 @@ std::optional<SetCountingLine> parse_set_counting_line(const std::string& line) 
     }
 
     // Find the "match-set" "<set>" pair and keep the first kpbr* set name.
+    // A negated match ("! match-set kpbr4n_<hash> dst", a negated address
+    // list of the rule) is a selector, not the set the traffic belongs to.
     std::optional<std::string> set_name;
     for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
-        if (tokens[i] == "match-set" && is_kpbr_set(tokens[i + 1])) {
+        if (tokens[i] == "match-set" && is_kpbr_set(tokens[i + 1]) &&
+            !(i > 0 && tokens[i - 1] == "!")) {
             set_name = tokens[i + 1];
             break;
         }
