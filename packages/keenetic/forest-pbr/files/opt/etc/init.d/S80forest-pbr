@@ -35,10 +35,8 @@ log_error() {
     logger -s -t "forest-pbr" -p "user.err" "$1"
 }
 
-is_module_loaded() {
-    local module="$1"
-
-    lsmod | grep -q "^${module}[[:space:]]"
+log_warn() {
+    logger -s -t "forest-pbr" -p "user.warning" "WARNING: $1"
 }
 
 module_path_for() {
@@ -47,43 +45,52 @@ module_path_for() {
     printf '/lib/modules/%s/%s.ko\n' "$(uname -r)" "$module"
 }
 
-ensure_kernel_module_loaded() {
-    local module="$1"
-    local module_path="$2"
-    local missing_message="$3"
-    local failure_message="$4"
+# Loaded modules always appear in sysfs. HINT ("file:name") catches modules
+# built into the firmware: present when the file lists that exact line, or,
+# with an empty name, when the file exists.
+kernel_module_present() {
+    local module="$1" hint="$2" file name
 
-    if is_module_loaded "$module"; then
-        return 0
+    [ -d "${KERNEL_MODULE_SYSFS:-/sys/module}/$module" ] && return 0
+    [ -n "$hint" ] || return 1
+    file="${hint%:*}"
+    name="${hint##*:}"
+    if [ -z "$name" ]; then
+        [ -e "$file" ]
+    else
+        grep -qx "$name" "$file" 2>/dev/null
     fi
-
-    if [ ! -f "$module_path" ]; then
-        log_error "$missing_message"
-        return 0
-    fi
-
-    if ! insmod "$module_path" 2>/dev/null; then
-        log_error "$failure_message"
-        return 0
-    fi
-
-    return 0
 }
 
-try_kernel_module_loaded() {
-    local module="$1"
-    local module_path
+# load_kernel_module LEVEL MODULE HINT EFFECT
+# LEVEL: required (logs an error), optional (logs a warning) or probe (the
+# caller reports the failure itself). Already present modules are silent.
+# Returns 0 when present or loaded, 1 when the .ko is missing, 2 when insmod
+# fails.
+load_kernel_module() {
+    local level="$1" module="$2" hint="$3" effect="$4" path output
 
-    if is_module_loaded "$module"; then
-        return 0
-    fi
+    kernel_module_present "$module" "$hint" && return 0
 
-    module_path="$(module_path_for "$module")"
-    if [ ! -f "$module_path" ]; then
+    path="$(module_path_for "$module")"
+    if [ ! -f "$path" ]; then
+        report_module_failure "$level" \
+            "kernel module $module is not loaded and $path does not exist: $effect"
         return 1
     fi
+    if ! output="$(insmod "$path" 2>&1)"; then
+        report_module_failure "$level" \
+            "failed to load kernel module $path${output:+ ($output)}: $effect"
+        return 2
+    fi
+    log "Loaded kernel module $path"
+}
 
-    insmod "$module_path" 2>/dev/null
+report_module_failure() {
+    case "$1" in
+        required) log_error "$2" ;;
+        optional) log_warn "$2" ;;
+    esac
 }
 
 ipset_hash_net_available() {
@@ -158,22 +165,20 @@ wait_for_keenetic_rci() {
     return 0
 }
 
+# The probe set is the test that counts: if it cannot be created, try the
+# ipset modules once and report the missing components in one message.
 ensure_ipset_modules_loaded() {
-    if ipset_hash_net_available; then
-        try_kernel_module_loaded xt_set >/dev/null 2>&1 || true
-        return 0
+    local module
+
+    if ! ipset_hash_net_available; then
+        for module in nfnetlink ip_set ip_set_hash_net; do
+            load_kernel_module probe "$module" "" ""
+        done
+        ipset_hash_net_available ||
+            log_error "$IPSET_COMPONENTS_MESSAGE Required probe failed: ipset create $IPSET_PROBE_SET hash:net family inet -exist"
     fi
-
-    try_kernel_module_loaded nfnetlink >/dev/null 2>&1 || true
-    try_kernel_module_loaded ip_set >/dev/null 2>&1 || true
-    try_kernel_module_loaded ip_set_hash_net >/dev/null 2>&1 || true
-    try_kernel_module_loaded xt_set >/dev/null 2>&1 || true
-
-    if ipset_hash_net_available; then
-        return 0
-    fi
-
-    log_error "$IPSET_COMPONENTS_MESSAGE Required probe failed: ipset create $IPSET_PROBE_SET hash:net family inet -exist"
+    load_kernel_module required xt_set /proc/net/ip_tables_matches:set \
+        "routing rules cannot match ipset lists"
 }
 
 # Pre-warm the IPv6 stack and the IPv6 netfilter tables the daemon needs.
@@ -191,40 +196,43 @@ ensure_ipset_modules_loaded() {
 ensure_ipv6_modules_loaded() {
     # Core protocol stack must come up before any of the netfilter tables can
     # be created on top of it.
-    try_kernel_module_loaded ipv6 >/dev/null 2>&1 || true
+    load_kernel_module probe ipv6 "" ""
 
     # Conntrack/defrag — needed if any KeenPbr v6 rule ever wants to read
     # connection state. Loading them is cheap and matches what NDM does once
     # WAN6 lights up.
-    try_kernel_module_loaded nf_defrag_ipv6 >/dev/null 2>&1 || true
-    try_kernel_module_loaded nf_conntrack_ipv6 >/dev/null 2>&1 || true
+    load_kernel_module probe nf_defrag_ipv6 "" ""
+    load_kernel_module probe nf_conntrack_ipv6 "" ""
 
     # ip6_tables framework, then the specific tables we touch (only `mangle`
     # is used for PBR today, but the `filter` table is what `ip6tables` lazy-
     # initialises when called with no -t flag and its absence has been seen
     # to confuse some probe paths).
-    try_kernel_module_loaded ip6_tables >/dev/null 2>&1 || true
-    try_kernel_module_loaded ip6table_filter >/dev/null 2>&1 || true
-    try_kernel_module_loaded ip6table_mangle >/dev/null 2>&1 || true
+    load_kernel_module probe ip6_tables "" ""
+    load_kernel_module probe ip6table_filter "" ""
+    load_kernel_module probe ip6table_mangle "" ""
 }
 
-ensure_xt_multiport_loaded() {
-    local module_path
+# What the KeenPbrTable rules use (src/firewall/iptables.cpp): MARK and the
+# mark match (xt_mark), --ctstate DNAT (xt_conntrack), -m set (xt_set, with the
+# ipset modules above) and --sport/--dport (xt_tcpudp). iptables-restore
+# applies the table in one transaction, so one missing extension fails the
+# whole apply. -m multiport only appears in rules with port lists.
+ensure_routing_modules_loaded() {
+    local effect="the firewall rules cannot be applied"
 
-    module_path="$(module_path_for xt_multiport)"
-
-    ensure_kernel_module_loaded \
-        xt_multiport \
-        "$module_path" \
-        "xt_multiport module not loaded and not found at $module_path. You can safely ignore this message if you are running a NDMS version lower than 3.x" \
-        "Failed to load xt_multiport from $module_path"
+    load_kernel_module required xt_mark /proc/net/ip_tables_targets:MARK "$effect"
+    load_kernel_module required xt_conntrack /proc/net/ip_tables_matches:conntrack "$effect"
+    load_kernel_module required xt_tcpudp /proc/net/ip_tables_matches:tcp "$effect"
+    load_kernel_module optional xt_multiport /proc/net/ip_tables_matches:multiport \
+        "rules with port lists cannot be applied"
 }
 
 check_runtime_dependencies() {
     check_netfilter_addons_component
     ensure_ipset_modules_loaded
     ensure_ipv6_modules_loaded
-    ensure_xt_multiport_loaded
+    ensure_routing_modules_loaded
 }
 
 enable_hwnat() {
