@@ -6,6 +6,8 @@ import {
 
 export type DemoConfigState = {
   config: ConfigObject
+  /** Last applied config, restored by a discard. */
+  saved_config: ConfigObject
   is_draft: boolean
   list_refresh_state: Record<
     string,
@@ -14,10 +16,12 @@ export type DemoConfigState = {
 }
 
 export function createInitialDemoState(): DemoConfigState {
+  const config = createAppMockConfig()
   return {
     is_draft: false,
     list_refresh_state: createAppMockListRefreshState(),
-    config: createAppMockConfig(),
+    config,
+    saved_config: config,
   }
 }
 
@@ -38,8 +42,21 @@ export function replaceDemoConfig(config: ConfigObject) {
 export function applyDemoConfig() {
   demoState = {
     ...demoState,
+    saved_config: demoState.config,
     is_draft: false,
   }
+}
+
+export function discardDemoConfig(): boolean {
+  if (!demoState.is_draft) {
+    return false
+  }
+  demoState = {
+    ...demoState,
+    config: demoState.saved_config,
+    is_draft: false,
+  }
+  return true
 }
 
 export function resetDemoState() {

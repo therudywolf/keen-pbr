@@ -8,6 +8,7 @@ import type { RouteRule } from "../src/api/generated/model/routeRule"
 
 import {
   applyDemoConfig,
+  discardDemoConfig,
   getDemoState,
   replaceDemoConfig,
 } from "./state"
@@ -193,6 +194,18 @@ async function handleApi(
     sendJson(res, 200, {
       status: "ok",
       message: "Configuration staged (demo).",
+    })
+    return
+  }
+
+  if (method === "POST" && pathname === "/api/config/discard") {
+    if (!discardDemoConfig()) {
+      sendJson(res, 400, { error: "No staged config to discard" })
+      return
+    }
+    sendJson(res, 200, {
+      status: "ok",
+      message: "Staged config discarded (demo).",
     })
     return
   }

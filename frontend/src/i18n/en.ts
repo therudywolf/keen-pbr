@@ -128,6 +128,8 @@ export const enTranslation = {
         actions: {
           applying: "Applying...",
           apply: "Apply",
+          discarding: "Discarding...",
+          discard: "Discard",
           applyingAndRestarting: "Applying & Restarting...",
           applyAndRestart: "Apply & Restart",
           restarting: "Restarting...",

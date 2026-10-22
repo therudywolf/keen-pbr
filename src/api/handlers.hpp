@@ -178,6 +178,7 @@ struct ApiContext {
 //   POST /api/lists/refresh   - refresh one or all URL-backed lists
 //   GET  /api/config          - return current config and draft status
 //   POST /api/config          - validate + stage config in memory
+//   POST /api/config/discard  - drop the staged config, keep the saved one
 //   POST /api/config/save     - apply staged config, then persist it
 //   GET  /api/health/routing  - routing and firewall health verification
 //   GET  /api/runtime/outbounds - live outbound/interface runtime state

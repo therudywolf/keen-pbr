@@ -7,10 +7,12 @@ import {
 import {
   postListsRefresh,
   postConfig,
+  postConfigDiscard,
   postConfigSave,
   postRoutingTest,
   usePostListsRefresh,
   usePostConfig,
+  usePostConfigDiscard,
   usePostConfigSave,
   usePostRoutingTest,
 } from "@/api/generated/keen-api"
@@ -25,9 +27,16 @@ import { apiFetch } from "@/api/client"
 type UsePostListsRefreshOptions = Parameters<typeof usePostListsRefresh>[0]
 type UsePostConfigOptions = Parameters<typeof usePostConfig>[0]
 type UsePostConfigSaveOptions = Parameters<typeof usePostConfigSave>[0]
+type UsePostConfigDiscardOptions = Parameters<typeof usePostConfigDiscard>[0]
 type UsePostRoutingTestOptions = Parameters<typeof usePostRoutingTest>[0]
 
-export { postConfig, postConfigSave, postListsRefresh, postRoutingTest }
+export {
+  postConfig,
+  postConfigDiscard,
+  postConfigSave,
+  postListsRefresh,
+  postRoutingTest,
+}
 
 export const usePostListsRefreshMutation = (
   options?: UsePostListsRefreshOptions
@@ -86,6 +95,32 @@ export const useApplyConfigMutation = (options?: UsePostConfigSaveOptions) => {
       ...options?.mutation,
       onSuccess: async (data, variables, onMutateResult, context) => {
         for (const queryKey of invalidationKeysAfterApplyConfigMutation) {
+          await queryClient.invalidateQueries({ queryKey })
+        }
+
+        await options?.mutation?.onSuccess?.(
+          data,
+          variables,
+          onMutateResult,
+          context
+        )
+      },
+    },
+  })
+}
+
+/** Drops the staged draft (also one staged by auto-heal promote). */
+export const useDiscardConfigMutation = (
+  options?: UsePostConfigDiscardOptions
+) => {
+  const queryClient = useQueryClient()
+
+  return usePostConfigDiscard({
+    ...options,
+    mutation: {
+      ...options?.mutation,
+      onSuccess: async (data, variables, onMutateResult, context) => {
+        for (const queryKey of invalidationKeysAfterConfigMutation) {
           await queryClient.invalidateQueries({ queryKey })
         }
 

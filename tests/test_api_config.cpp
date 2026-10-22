@@ -190,6 +190,40 @@ TEST_CASE("POST /api/config/save keeps the draft when the applied config cannot 
     CHECK(daemon.staged->second == "{}\n");
 }
 
+TEST_CASE("POST /api/config/discard drops the staged draft and rejects a missing one") {
+    TempDir dir;
+    FakeConfigDaemon daemon;
+    daemon.config_path = (dir.path / "config.json").string();
+    { std::ofstream(daemon.config_path) << "saved\n"; }
+    // A draft as staged by POST /api/autoheal/promote.
+    daemon.staged = std::make_pair(Config{}, std::string("{\n\t\"promoted\": true\n}\n"));
+
+    SseBroadcaster broadcaster;
+    auto ctx = daemon.make_context(broadcaster);
+    ApiConfig api_config;
+    api_config.listen = std::string("127.0.0.1:18198");
+    ApiServer server(api_config);
+    register_config_handler(server, ctx);
+    server.start();
+
+    httplib::Client client("127.0.0.1", 18198);
+    const auto discarded = client.Post("/api/config/discard", "", "application/json");
+    const auto nothing_left = client.Post("/api/config/discard", "", "application/json");
+    server.stop();
+
+    REQUIRE(discarded != nullptr);
+    CHECK(discarded->status == 200);
+    const auto body = nlohmann::json::parse(discarded->body);
+    CHECK(body["status"] == "ok");
+    CHECK_FALSE(daemon.staged.has_value());
+    CHECK(daemon.apply_calls == 0);
+    CHECK(read_file(daemon.config_path) == "saved\n");
+
+    REQUIRE(nothing_left != nullptr);
+    CHECK(nothing_left->status == 400);
+    CHECK(nlohmann::json::parse(nothing_left->body)["error"] == "No staged config to discard");
+}
+
 } // namespace keen_pbr3
 
 #endif // WITH_API

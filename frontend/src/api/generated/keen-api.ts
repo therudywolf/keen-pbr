@@ -735,6 +735,102 @@ export const usePostConfig = <TError = ErrorResponse,
     }
 
 /**
+ * Discards the currently staged in-memory configuration (from POST /api/config or POST /api/autoheal/promote) and makes the last saved configuration the visible one again. The saved file and the routing runtime are not changed.
+
+ * @summary Discard staged config
+ */
+export type postConfigDiscardResponse200 = {
+  data: ConfigUpdateResponse
+  status: 200
+}
+
+export type postConfigDiscardResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type postConfigDiscardResponse500 = {
+  data: ErrorResponse
+  status: 500
+}
+
+export type postConfigDiscardResponseSuccess = (postConfigDiscardResponse200) & {
+  headers: Headers;
+};
+export type postConfigDiscardResponseError = (postConfigDiscardResponse400 | postConfigDiscardResponse500) & {
+  headers: Headers;
+};
+
+export type postConfigDiscardResponse = (postConfigDiscardResponseSuccess | postConfigDiscardResponseError)
+
+export const getPostConfigDiscardUrl = () => {
+
+
+
+
+  return `/api/config/discard`
+}
+
+export const postConfigDiscard = async ( options?: RequestInit): Promise<postConfigDiscardResponse> => {
+
+  return apiFetch<postConfigDiscardResponse>(getPostConfigDiscardUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPostConfigDiscardMutationOptions = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postConfigDiscard>>, TError,void, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof postConfigDiscard>>, TError,void, TContext> => {
+
+const mutationKey = ['postConfigDiscard'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postConfigDiscard>>, void> = () => {
+
+
+          return  postConfigDiscard(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostConfigDiscardMutationResult = NonNullable<Awaited<ReturnType<typeof postConfigDiscard>>>
+
+    export type PostConfigDiscardMutationError = ErrorResponse
+
+    /**
+ * @summary Discard staged config
+ */
+export const usePostConfigDiscard = <TError = ErrorResponse,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postConfigDiscard>>, TError,void, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postConfigDiscard>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getPostConfigDiscardMutationOptions(options), queryClient);
+    }
+
+/**
  * Applies the currently staged in-memory config to the routing runtime and, only once that succeeded, persists it to disk. A config that fails to apply is rolled back and never written, so the daemon does not boot into it. The `saved`, `applied` and `rolled_back` fields of the error body tell how far the operation got.
 
  * @summary Apply staged config

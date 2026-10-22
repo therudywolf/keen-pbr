@@ -88,6 +88,22 @@ void register_config_handler(ApiServer& server, ApiContext& ctx) {
         return nlohmann::json(resp).dump();
     });
 
+    // POST /api/config/discard - drop the staged draft, whether it came from
+    // POST /api/config or POST /api/autoheal/promote. The saved file and the
+    // routing runtime are not touched.
+    server.post("/api/config/discard", [&ctx]() -> std::string {
+        if (!ctx.config_is_draft()) {
+            throw ApiError("No staged config to discard", 400);
+        }
+
+        ctx.clear_staged_config();
+
+        api::ConfigUpdateResponse resp;
+        resp.status = api::ConfigUpdateResponseStatus::OK;
+        resp.message = "Staged config discarded";
+        return nlohmann::json(resp).dump();
+    });
+
     // POST /api/config/save - dry-run check, apply staged config, then persist it
     server.post("/api/config/save", [&ctx]() -> std::string {
         ctx.begin_save_operation();

@@ -166,6 +166,35 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/config/discard:
+    post:
+      summary: Discard staged config
+      description: >
+        Discards the currently staged in-memory configuration (from POST
+        /api/config or POST /api/autoheal/promote) and makes the last saved
+        configuration the visible one again. The saved file and the routing
+        runtime are not changed.
+      operationId: postConfigDiscard
+      responses:
+        "200":
+          description: Staged config discarded successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigUpdateResponse"
+        "400":
+          description: No staged config to discard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/config/save:
     post:
       summary: Apply staged config

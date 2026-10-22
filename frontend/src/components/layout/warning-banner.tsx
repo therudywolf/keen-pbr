@@ -1,11 +1,15 @@
 import { useLayoutEffect, useRef } from "react"
-import { SaveIcon } from "lucide-react"
+import { RotateCcwIcon, SaveIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 
+import type { ApiError } from "@/api/client"
 import {
   useApplyConfigMutation,
+  useDiscardConfigMutation,
   usePostServiceActionMutation,
 } from "@/api/mutations"
+import { getApiErrorMessage } from "@/lib/api-errors"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useSidebar } from "@/components/ui/sidebar-context"
@@ -25,6 +29,13 @@ export function WarningBanner({
   const { t } = useTranslation()
   const { isMobile, open } = useSidebar()
   const applyConfigMutation = useApplyConfigMutation()
+  const discardConfigMutation = useDiscardConfigMutation({
+    mutation: {
+      onError: (error) => {
+        toast.error(getApiErrorMessage(error as ApiError), { richColors: true })
+      },
+    },
+  })
   const restartServiceMutation = usePostServiceActionMutation("restart")
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -97,18 +108,34 @@ export function WarningBanner({
           </div>
 
           {!isConverging ? (
-            <Button
-              disabled={state.isActionDisabled}
-              onClick={handleApplyAndReload}
-              size="lg"
-              variant="outline"
-              className="shrink-0 bg-background hover:bg-background dark:bg-card dark:hover:bg-card"
-            >
-              <SaveIcon className="mr-1 h-4 w-4" />
-              {state.actionPending
-                ? t("warning.actions.applyingAndRestarting")
-                : t("warning.actions.applyAndRestart")}
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              {state.hasDraftConfig ? (
+                <Button
+                  disabled={state.isActionDisabled || discardConfigMutation.isPending}
+                  onClick={() => discardConfigMutation.mutate()}
+                  size="lg"
+                  variant="ghost"
+                  className="shrink-0"
+                >
+                  <RotateCcwIcon className="mr-1 h-4 w-4" />
+                  {discardConfigMutation.isPending
+                    ? t("warning.actions.discarding")
+                    : t("warning.actions.discard")}
+                </Button>
+              ) : null}
+              <Button
+                disabled={state.isActionDisabled || discardConfigMutation.isPending}
+                onClick={handleApplyAndReload}
+                size="lg"
+                variant="outline"
+                className="shrink-0 bg-background hover:bg-background dark:bg-card dark:hover:bg-card"
+              >
+                <SaveIcon className="mr-1 h-4 w-4" />
+                {state.actionPending
+                  ? t("warning.actions.applyingAndRestarting")
+                  : t("warning.actions.applyAndRestart")}
+              </Button>
+            </div>
           ) : null}
         </div>
 
