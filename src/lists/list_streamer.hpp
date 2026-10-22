@@ -2,14 +2,19 @@
 
 #include "../cache/cache_manager.hpp"
 #include "../config/config.hpp"
+#include "../config/list_parser.hpp"
 #include "list_entry_visitor.hpp"
 
+#include <cstddef>
 #include <string>
 
 namespace keen_pbr3 {
 
 class ListStreamer {
 public:
+    // Longest accepted line of a list file; longer lines are skipped.
+    static constexpr std::size_t kMaxLineBytes = ListParser::kMaxLineBytes;
+
     explicit ListStreamer(const CacheManager& cache);
 
     // Stream all sources for a named list (cache file, local file, inline entries)
@@ -34,8 +39,12 @@ private:
                             ListEntryVisitor& visitor,
                             bool include_cache);
 
-    // Open a file and stream its entries through the visitor.
-    static void stream_file(const std::filesystem::path& path, ListEntryVisitor& visitor);
+    // Open a regular file and stream its entries through the visitor.
+    // Malformed entries are skipped; they are logged only when
+    // log_invalid_entries is set (local files, not downloaded caches).
+    static void stream_file(const std::filesystem::path& path,
+                            ListEntryVisitor& visitor,
+                            bool log_invalid_entries);
 
     const CacheManager& cache_;
 };

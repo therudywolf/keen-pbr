@@ -144,11 +144,13 @@ static std::vector<std::string> split_domains_from_ipset_line(const std::string&
 }
 
 static std::string make_domain_with_len(size_t target_len, const std::string& seed) {
-    std::string domain = seed + ".";
-    if (domain.size() < target_len) {
-        domain += std::string(target_len - domain.size(), 'a');
-    } else if (domain.size() > target_len) {
-        domain.resize(target_len);
+    // Build valid DNS names: labels of at most 63 characters.
+    std::string domain = seed;
+    while (domain.size() < target_len) {
+        const size_t remaining = target_len - domain.size();
+        const size_t label_len = std::min<size_t>(63, remaining - 1);
+        domain.push_back('.');
+        domain.append(label_len, 'a');
     }
     return domain;
 }
@@ -970,11 +972,11 @@ TEST_CASE("generate-resolver-config keeps 1000 short domains within batch and li
     CHECK(emitted_domains == expected_domains);
 }
 
-TEST_CASE("generate-resolver-config edge lengths 200..255 split rows safely and keep all domains") {
+TEST_CASE("generate-resolver-config edge lengths 200..253 split rows safely and keep all domains") {
     CacheManager cache("/nonexistent/cache");
     const std::string list_name(80, 'l');
 
-    for (size_t variable_len = 200; variable_len <= 255; ++variable_len) {
+    for (size_t variable_len = 200; variable_len <= 253; ++variable_len) {
         CAPTURE(variable_len);
 
         ListStreamer streamer(cache);
@@ -1035,6 +1037,46 @@ TEST_CASE("generate-resolver-config edge lengths 200..255 split rows safely and 
         CHECK(line_domain_counts == expected_counts);
         CHECK(emitted_domains == expected_domains);
     }
+}
+
+TEST_CASE("dnsmasq normalizes wildcard inline domains") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const std::string list_name = "wildcards";
+    auto route_cfg = make_route_cfg(list_name);
+    auto lists = std::map<std::string, ListConfig>{
+        {list_name, make_list_cfg({"*.google.com", "example.org."})}};
+    auto dns_cfg = make_empty_dns_cfg();
+    DnsServerRegistry dns_registry(dns_cfg);
+    DnsmasqGenerator gen(dns_registry, streamer, route_cfg, dns_cfg, lists,
+                         ResolverType::DNSMASQ_IPSET);
+
+    const std::string output = run_generate(gen);
+    CHECK(output.find("/google.com/") != std::string::npos);
+    CHECK(output.find("*.google.com") == std::string::npos);
+    CHECK(output.find("/example.org/") != std::string::npos);
+    CHECK(output.find("example.org./") == std::string::npos);
+}
+
+TEST_CASE("dnsmasq output never carries directives injected through inline domains") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const std::string list_name = "injected";
+    auto route_cfg = make_route_cfg(list_name);
+    auto lists = std::map<std::string, ListConfig>{
+        {list_name, make_list_cfg({"good.example", "evil.example\nserver=/evil/1.1.1.1",
+                                   "24.105.30.0/24"})}};
+    auto dns_cfg = make_empty_dns_cfg();
+    DnsServerRegistry dns_registry(dns_cfg);
+    DnsmasqGenerator gen(dns_registry, streamer, route_cfg, dns_cfg, lists,
+                         ResolverType::DNSMASQ_IPSET);
+
+    const std::string output = run_generate(gen);
+    CHECK(output.find("good.example") != std::string::npos);
+    CHECK(output.find("server=/evil/") == std::string::npos);
+    CHECK(output.find("evil.example") == std::string::npos);
+    // The CIDR goes to the static IP set, not into a dnsmasq domain path.
+    CHECK(output.find("24.105.30.0") == std::string::npos);
 }
 
 TEST_CASE("generate-resolver-config ignores domains longer than 255 chars") {

@@ -655,6 +655,22 @@ TEST_CASE("remote list URLs allow only HTTP and HTTPS") {
     }
 }
 
+TEST_CASE("inline list entries never reject the config") {
+    // Real lists are aggregated from many sources; malformed entries are
+    // skipped (with a warning) when the lists are streamed instead.
+    CHECK_NOTHROW(parse_test_config(
+        R"({"lists":{"domains":{"domains":["*.google.com","_dns._udp.example.com.","# package note","   ","bad/domain","*.*.onedrive.live.com","yandex.net:443","24.105.30.0/24"]}}})"));
+    for (const std::string& domain : {
+             "bad/domain", "bad domain", "example..com", "-bad.example",
+             "example.com\nserver=/evil/1.1.1.1"}) {
+        CAPTURE(domain);
+        const nlohmann::json config = {
+            {"lists", {{"domains", {{"domains", {domain}}}}}},
+        };
+        CHECK_NOTHROW(parse_test_config(config.dump()));
+    }
+}
+
 TEST_CASE("lists without a URL are not affected by the URL scheme check") {
     CHECK_NOTHROW(parse_test_config(
         R"({"lists":{"inline":{"url":null,"file":null,"domains":["example.com"]}}})"));

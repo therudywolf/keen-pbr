@@ -22,6 +22,7 @@ add_executable(keen-pbr-tests
   test_http_client.cpp
   test_config_validation.cpp
   test_list_parser.cpp
+  test_list_streamer.cpp
   test_routing_state.cpp
   test_changed_kpbr_sets.cpp
   test_list_audit.cpp

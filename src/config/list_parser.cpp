@@ -1,8 +1,13 @@
 #include "list_parser.hpp"
+#include "../log/logger.hpp"
 
 #include <arpa/inet.h>
 
+#include <algorithm>
 #include <charconv>
+#include <functional>
+#include <mutex>
+#include <unordered_map>
 
 namespace keen_pbr3 {
 
@@ -15,6 +20,91 @@ static std::string_view trim(std::string_view sv) {
     }
     return sv;
 }
+
+namespace {
+
+std::string display_source(std::string_view source_name) {
+    return source_name.empty() ? std::string("list source") : std::string(source_name);
+}
+
+// Quotes an entry for a log line. Control bytes are escaped so an entry can
+// never break the line, and long entries are cut at 256 bytes.
+std::string format_entry_for_log(std::string_view entry) {
+    constexpr std::size_t kMaxLoggedBytes = 256;
+    std::string result;
+    result.reserve(std::min(entry.size(), kMaxLoggedBytes) + 2);
+    result.push_back('\'');
+    const std::size_t length = std::min(entry.size(), kMaxLoggedBytes);
+    for (std::size_t index = 0; index < length; ++index) {
+        const unsigned char ch = static_cast<unsigned char>(entry[index]);
+        switch (ch) {
+            case '\\': result += "\\\\"; break;
+            case '\'': result += "\\'"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:
+                if (ch < 0x20 || ch == 0x7f) {
+                    constexpr char hex[] = "0123456789abcdef";
+                    result += "\\x";
+                    result.push_back(hex[ch >> 4]);
+                    result.push_back(hex[ch & 0x0f]);
+                } else {
+                    result.push_back(static_cast<char>(ch));
+                }
+        }
+    }
+    if (entry.size() > length) result += "...";
+    result.push_back('\'');
+    return result;
+}
+
+std::string invalid_entry_warning(std::string_view entry,
+                                  std::string_view source_name,
+                                  std::size_t line_number) {
+    return keen_pbr3::format("Skipping invalid list entry {} in {} at line {}",
+                             format_entry_for_log(entry),
+                             display_source(source_name),
+                             line_number);
+}
+
+std::string overlong_line_warning(std::string_view source_name, std::size_t line_number) {
+    return keen_pbr3::format("Skipping list line longer than {} bytes in {} at line {}",
+                             ListParser::kMaxLineBytes,
+                             display_source(source_name),
+                             line_number);
+}
+
+void hash_combine(std::size_t& seed, std::size_t value) {
+    seed ^= value + 0x9e3779b9U + (seed << 6U) + (seed >> 2U);
+}
+
+// Counts a malformed entry and keeps the first warnings for finish_source().
+template <typename MakeWarning>
+void record_invalid_entry(ListParser::ParseContext& context,
+                          std::size_t entry_hash,
+                          std::size_t line_number,
+                          MakeWarning&& make_warning) {
+    ++context.invalid_entry_count;
+    hash_combine(context.invalid_entries_signature, entry_hash);
+    hash_combine(context.invalid_entries_signature, line_number);
+    if (context.pending_warnings.size() < ListParser::kMaxDetailedInvalidEntries) {
+        context.pending_warnings.push_back(make_warning());
+    }
+}
+
+// Signature of the malformed entries each source reported in its last pass.
+struct ReportedInvalidEntries {
+    std::mutex mutex;
+    std::unordered_map<std::string, std::size_t> signatures;
+};
+
+ReportedInvalidEntries& reported_invalid_entries() {
+    static ReportedInvalidEntries reported;
+    return reported;
+}
+
+} // namespace
 
 bool ListParser::is_ipv4(std::string_view s) {
     int octets = 0;
@@ -72,30 +162,38 @@ bool ListParser::is_cidr_v6(std::string_view s) {
     return prefix >= 0 && prefix <= 128;
 }
 
-bool ListParser::is_domain(std::string_view s) {
-    if (s.empty()) return false;
-    // Strip leading wildcard prefix
-    if (s.size() >= 2 && s[0] == '*' && s[1] == '.') {
-        s.remove_prefix(2);
-    }
-    if (s.empty()) return false;
-    // Domain: labels separated by dots, each label is alphanumeric or hyphen
+std::optional<std::string> ListParser::normalize_domain(std::string_view s) {
+    if (s.empty()) return std::nullopt;
+    if (s.size() >= 2 && s.substr(0, 2) == "*.") s.remove_prefix(2);
+    if (!s.empty() && s.back() == '.') s.remove_suffix(1);
+    if (s.empty() || s.back() == '.' || s.size() > 253) return std::nullopt;
+
     bool has_alpha = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-            has_alpha = true;
-        } else if ((c >= '0' && c <= '9') || c == '-' || c == '_') {
-            // ok (hyphen/underscore allowed in labels)
-        } else if (c == '.') {
-            // dot separating labels
-            if (i == 0 || s[i - 1] == '.') return false; // no empty labels
-        } else {
-            return false;
+    std::size_t label_start = 0;
+    while (label_start < s.size()) {
+        const std::size_t dot = s.find('.', label_start);
+        const std::size_t label_end = dot == std::string_view::npos ? s.size() : dot;
+        const std::size_t label_size = label_end - label_start;
+        if (label_size == 0 || label_size > 63) return std::nullopt;
+        if (s[label_start] == '-' || s[label_end - 1] == '-') return std::nullopt;
+
+        for (std::size_t i = label_start; i < label_end; ++i) {
+            const char c = s[i];
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+                has_alpha = true;
+            } else if ((c >= '0' && c <= '9') || c == '-' || c == '_') {
+                // DNS-compatible service labels may contain underscores.
+            } else {
+                return std::nullopt;
+            }
         }
+        if (dot == std::string_view::npos) break;
+        label_start = dot + 1;
     }
-    // Must contain at least one alpha character to distinguish from IPv4
-    return has_alpha;
+
+    // At least one letter tells a domain apart from a malformed IPv4 address.
+    if (!has_alpha) return std::nullopt;
+    return std::string(s);
 }
 
 bool ListParser::classify_entry(std::string_view entry, ListEntryVisitor& visitor) {
@@ -107,21 +205,105 @@ bool ListParser::classify_entry(std::string_view entry, ListEntryVisitor& visito
         visitor.on_entry(EntryType::Ip, entry);
         return true;
     }
-    if (is_domain(entry)) {
-        visitor.on_entry(EntryType::Domain, entry);
+    if (auto domain = normalize_domain(entry)) {
+        visitor.on_entry(EntryType::Domain, *domain);
         return true;
     }
     return false;
 }
 
-void ListParser::stream_parse(std::istream& input, ListEntryVisitor& visitor) {
+void ListParser::stream_parse(std::istream& input,
+                              ListEntryVisitor& visitor,
+                              std::string_view source_name) {
     std::string line;
+    std::size_t line_number = 0;
+    ParseContext context;
     while (std::getline(input, line)) {
-        auto sv = trim(std::string_view(line));
-        if (sv.empty()) continue;
-        if (sv.front() == '#') continue;
-        classify_entry(sv, visitor);
+        ++line_number;
+        if (line.size() > kMaxLineBytes) {
+            report_overlong_line(source_name, line_number, context);
+            continue;
+        }
+        parse_line(line, visitor, source_name, line_number, &context);
+    }
+    finish_source(source_name, context);
+}
+
+void ListParser::parse_line(std::string_view line,
+                            ListEntryVisitor& visitor,
+                            std::string_view source_name,
+                            std::size_t line_number,
+                            ParseContext* context) {
+    const auto value = trim(line);
+    if (value.empty() || value.front() == '#') return;
+    if (classify_entry(value, visitor)) return;
+
+    if (context == nullptr) {
+        Logger::instance().warn(
+            std::string_view(invalid_entry_warning(value, source_name, line_number)));
+        return;
+    }
+    if (!context->log_invalid_entries) return;
+    record_invalid_entry(*context,
+                         std::hash<std::string_view>{}(value),
+                         line_number,
+                         [&] { return invalid_entry_warning(value, source_name, line_number); });
+}
+
+void ListParser::report_overlong_line(std::string_view source_name,
+                                      std::size_t line_number,
+                                      ParseContext& context) {
+    if (!context.log_invalid_entries) return;
+    record_invalid_entry(context,
+                         kMaxLineBytes,
+                         line_number,
+                         [&] { return overlong_line_warning(source_name, line_number); });
+}
+
+void ListParser::finish_source(std::string_view source_name, ParseContext& context) {
+    if (!context.log_invalid_entries) return;
+
+    const std::string source = display_source(source_name);
+    bool already_reported = false;
+    {
+        auto& reported = reported_invalid_entries();
+        std::lock_guard<std::mutex> lock(reported.mutex);
+        if (context.invalid_entry_count == 0) {
+            reported.signatures.erase(source);
+            return;
+        }
+        const auto [it, inserted] =
+            reported.signatures.try_emplace(source, context.invalid_entries_signature);
+        if (!inserted) {
+            already_reported = it->second == context.invalid_entries_signature;
+            it->second = context.invalid_entries_signature;
+        }
+    }
+
+    auto& logger = Logger::instance();
+    if (already_reported) {
+        logger.verbose("Skipped {} invalid list entries in {} (unchanged, reported before)",
+                       context.invalid_entry_count,
+                       source);
+        return;
+    }
+    for (const auto& warning : context.pending_warnings) {
+        logger.warn(std::string_view(warning));
+    }
+    if (context.invalid_entry_count > context.pending_warnings.size()) {
+        logger.warn("Too many invalid list entries in {}: skipped {}, only the first {} are shown",
+                    source,
+                    context.invalid_entry_count,
+                    context.pending_warnings.size());
     }
 }
+
+#ifdef KEEN_PBR3_TESTING
+void ListParser::reset_reported_invalid_entries_for_tests() {
+    auto& reported = reported_invalid_entries();
+    std::lock_guard<std::mutex> lock(reported.mutex);
+    reported.signatures.clear();
+}
+#endif
 
 } // namespace keen_pbr3
