@@ -2,6 +2,7 @@
 
 #include "../cache/cache_manager.hpp"
 #include "../config/routing_state.hpp"
+#include "../firewall/firewall_runtime.hpp"
 #include "../firewall/firewall_verifier.hpp"
 #include "../health/routing_health_checker.hpp"
 #include "../lists/list_streamer.hpp"
@@ -10,10 +11,10 @@
 #include "../routing/netlink.hpp"
 #include "../routing/policy_rule.hpp"
 #include "../routing/route_table.hpp"
+#include "../routing/urltest_routes.hpp"
 #include "../util/format_compat.hpp"
 #include "../util/firewall_backend_utils.hpp"
 #include "../util/ipv6_support.hpp"
-#include "../util/string_compat.hpp"
 
 #include <netinet/in.h>
 #include <cstdint>
@@ -123,25 +124,6 @@ const Outbound* find_outbound(const std::vector<Outbound>& outbounds, const std:
     return nullptr;
 }
 
-bool route_matches_outbound(const DumpedRoute& route, const Outbound& outbound) {
-    if (route.destination != "default" || route.blackhole || route.unreachable) {
-        return false;
-    }
-    if (outbound.type != OutboundType::INTERFACE) {
-        return false;
-    }
-    if (route.interface != outbound.interface) {
-        return false;
-    }
-    if (route.family == AF_INET && outbound.gateway.has_value()) {
-        return route.gateway == outbound.gateway;
-    }
-    if (route.family == AF_INET6 && outbound.gateway6.has_value()) {
-        return route.gateway == outbound.gateway6;
-    }
-    return !route.gateway.has_value();
-}
-
 std::map<std::string, std::string> infer_urltest_selections(const Config& config,
                                                             NetlinkManager& netlink) {
     std::map<std::string, std::string> selections;
@@ -171,40 +153,13 @@ std::map<std::string, std::string> infer_urltest_selections(const Config& config
             continue;
         }
 
-        auto routes = netlink.dump_routes_in_table(table_id);
-        const DumpedRoute* selected_route = nullptr;
-        for (const auto& route : routes) {
-            if (route.destination != "default" ||
-                route.blackhole ||
-                route.unreachable ||
-                route.metric != 0) {
-                continue;
-            }
-            if (selected_route != nullptr) {
-                selected_route = nullptr;
-                break;
-            }
-            selected_route = &route;
-        }
-
-        if (!selected_route || !ob.outbound_groups.has_value()) {
-            continue;
-        }
-
-        for (const auto& group : *ob.outbound_groups) {
-            for (const auto& child_tag : group.outbounds) {
-                const Outbound* child = find_outbound(outbounds, child_tag);
-                if (!child) {
-                    continue;
-                }
-                if (route_matches_outbound(*selected_route, *child)) {
-                    selections[ob.tag] = child->tag;
-                    break;
-                }
-            }
-            if (contains(selections, ob.tag)) {
-                break;
-            }
+        // The IPv4 and IPv6 default routes of the selected child both have
+        // metric 0; requiring a single such route made every dual-stack
+        // urltest look unselected (and its rules MISMATCH).
+        const auto selected = infer_urltest_selection_from_routes(
+            outbounds, ob, netlink.dump_routes_in_table(table_id));
+        if (selected.has_value()) {
+            selections[ob.tag] = *selected;
         }
     }
 
@@ -341,7 +296,8 @@ void print_header(const RoutingHealthReport& report, const std::string& config_p
 
 void print_outbound_section(const Config& config,
                             const OutboundMarkMap& marks,
-                            const RoutingHealthReport& report) {
+                            const RoutingHealthReport& report,
+                            const std::map<std::string, std::string>& urltest_selections) {
     std::map<std::string, std::vector<const RouteTableCheck*>> routes_by_outbound;
     for (const auto& rt : report.route_tables) {
         routes_by_outbound[rt.outbound_tag].push_back(&rt);
@@ -394,8 +350,12 @@ void print_outbound_section(const Config& config,
             std::cout << " table=" << table_id
                       << " fwmark=" << fwmark_hex(fwmark);
         } else if (ob.type == OutboundType::URLTEST) {
+            const auto selected = urltest_selections.find(ob.tag);
             std::cout << " fwmark=" << fwmark_hex(fwmark)
-                      << " table=" << table_id;
+                      << " table=" << table_id
+                      << " selected="
+                      << (selected != urltest_selections.end() ? selected->second
+                                                               : std::string("(none)"));
         }
         std::cout << "\n";
 
@@ -459,8 +419,10 @@ void print_firewall_section(const std::vector<DisplayFirewallRule>& firewall_rul
             if (fr.selected_outbound) {
                 rule_desc += " selected=" + *fr.selected_outbound;
             }
-        } else {
+        } else if (fr.action == "drop") {
             rule_desc += "DROP";
+        } else {
+            rule_desc += "PASS";
         }
         const std::string status_label =
             fr.status_label_override.value_or(check_status_label(fr.status));
@@ -523,6 +485,17 @@ int run_status_command(const Config& config, const std::string& config_path) {
         [&list_streamer](const std::string& list_name, const ListConfig& list_cfg) {
             return analyze_list_set_usage(list_name, list_cfg, list_streamer);
         });
+    // Verify the rules with the selectors the apply installed (proto, ports,
+    // addresses): without them every rule with a selector was MISSING and the
+    // status DEGRADED while /api/health/routing was ok.
+    const auto& route_rules =
+        config.route.value_or(RouteConfig{}).rules.value_or(std::vector<RouteRule>{});
+    for (auto& rule_state : fw_rules) {
+        if (rule_state.action_type != RuleActionType::Skip &&
+            rule_state.rule_index < route_rules.size()) {
+            rule_state.criteria = build_firewall_rule_criteria(route_rules[rule_state.rule_index]);
+        }
+    }
 
     FirewallState fw_state;
     fw_state.set_outbound_marks(marks);
@@ -538,7 +511,7 @@ int run_status_command(const Config& config, const std::string& config_path) {
     const auto display_firewall_rules = build_display_firewall_rules(config, marks, report.firewall_rules);
 
     print_header(report, config_path);
-    print_outbound_section(config, marks, report);
+    print_outbound_section(config, marks, report, urltest_selections);
     print_firewall_section(display_firewall_rules, report);
     print_overall_summary(report, display_firewall_rules);
 

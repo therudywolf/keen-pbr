@@ -29,6 +29,11 @@ struct FirewallSetCache {
     }
 };
 
+// Selector criteria (proto, ports, addresses, negations) of a route rule,
+// exactly as the apply installs them. The status command uses the same
+// function, so it verifies the rules the daemon actually built.
+FirewallRuleCriteria build_firewall_rule_criteria(const RouteRule& rule);
+
 // Identity of everything that decides the layout and contents of the list
 // sets: the lists referenced by enabled route rules (inline CIDRs, domain
 // count, ttl, file and cache stamps) and the IPv6 decision. Cheap: one

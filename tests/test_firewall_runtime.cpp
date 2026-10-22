@@ -318,3 +318,37 @@ TEST_CASE("daemon.clear_dynamic_sets_on_apply: optional boolean") {
     CHECK_THROWS_AS(parse_config(R"({"daemon":{"clear_dynamic_sets_on_apply":"yes"}})"),
                     ConfigValidationError);
 }
+
+TEST_CASE("build_firewall_rule_criteria: selectors as the apply installs them") {
+    RouteRule rule;
+    rule.outbound = "vpn";
+    rule.proto = "tcp/udp";
+    rule.src_port = "!1024-2048";
+    rule.dest_port = "443";
+    rule.src_addr = "192.168.1.0/24";
+    rule.dest_addr = "!10.0.0.0/8,192.168.0.0/16";
+
+    const auto criteria = build_firewall_rule_criteria(rule);
+    CHECK(criteria.proto == L4Proto::TcpUdp);
+    CHECK(criteria.negate_src_port);
+    CHECK(criteria.src_port.to_iptables_string() == "1024:2048");
+    CHECK_FALSE(criteria.negate_dst_port);
+    CHECK(criteria.dst_port.to_iptables_string() == "443");
+    CHECK(criteria.src_addr == std::vector<std::string>{"192.168.1.0/24"});
+    CHECK_FALSE(criteria.negate_src_addr);
+    CHECK(criteria.dst_addr == std::vector<std::string>{"10.0.0.0/8", "192.168.0.0/16"});
+    CHECK(criteria.negate_dst_addr);
+
+    // The apply records the same criteria in its rule states.
+    Config config = shared_list_config();
+    config.route->rules->at(0).proto = "tcp";
+    config.route->rules->at(0).dest_port = "443";
+    const auto marks = allocate_outbound_marks(FwmarkConfig{}, *config.outbounds);
+    CacheManager cache("/nonexistent/cache");
+    RecordingFirewall firewall;
+    const auto states = apply_runtime_firewall(
+        config, marks, {}, cache, firewall, FirewallApplyMode::Destructive);
+    REQUIRE(states.size() == 2);
+    CHECK(states[0].criteria.proto == L4Proto::Tcp);
+    CHECK(states[0].criteria.dst_port.to_iptables_string() == "443");
+}

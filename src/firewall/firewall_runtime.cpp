@@ -121,37 +121,7 @@ std::vector<RuleState> apply_runtime_firewall_impl(
 
         const bool is_blackhole = rule_state.action_type == RuleActionType::Drop;
         const bool is_pass = rule_state.action_type == RuleActionType::Pass;
-        auto strip_neg = [](const std::string& value) -> std::pair<std::string, bool> {
-            if (!value.empty() && value.front() == '!') {
-                return {value.substr(1), true};
-            }
-            return {value, false};
-        };
-
-        FirewallRuleCriteria criteria;
-        criteria.proto = parse_rule_proto(rule.proto);
-
-        {
-            auto [port, negated] = strip_neg(rule.src_port.value_or(""));
-            criteria.src_port = port;
-            criteria.negate_src_port = negated;
-        }
-        {
-            auto [port, negated] = strip_neg(rule.dest_port.value_or(""));
-            criteria.dst_port = port;
-            criteria.negate_dst_port = negated;
-        }
-        {
-            AddrSpec spec = parse_addr_spec(rule.src_addr.value_or(""));
-            criteria.negate_src_addr = spec.negate;
-            criteria.src_addr = std::move(spec.addrs);
-        }
-        {
-            AddrSpec spec = parse_addr_spec(rule.dest_addr.value_or(""));
-            criteria.negate_dst_addr = spec.negate;
-            criteria.dst_addr = std::move(spec.addrs);
-        }
-
+        const FirewallRuleCriteria criteria = build_firewall_rule_criteria(rule);
         rule_state.criteria = criteria;
 
         auto apply_rule = [&](const std::optional<std::string>& dst_set_name) {
@@ -331,6 +301,40 @@ std::vector<RuleState> apply_runtime_firewall_impl(
 }
 
 } // namespace
+
+FirewallRuleCriteria build_firewall_rule_criteria(const RouteRule& rule) {
+    const auto strip_neg = [](const std::string& value) -> std::pair<std::string, bool> {
+        if (!value.empty() && value.front() == '!') {
+            return {value.substr(1), true};
+        }
+        return {value, false};
+    };
+
+    FirewallRuleCriteria criteria;
+    criteria.proto = parse_rule_proto(rule.proto);
+
+    {
+        auto [port, negated] = strip_neg(rule.src_port.value_or(""));
+        criteria.src_port = port;
+        criteria.negate_src_port = negated;
+    }
+    {
+        auto [port, negated] = strip_neg(rule.dest_port.value_or(""));
+        criteria.dst_port = port;
+        criteria.negate_dst_port = negated;
+    }
+    {
+        AddrSpec spec = parse_addr_spec(rule.src_addr.value_or(""));
+        criteria.negate_src_addr = spec.negate;
+        criteria.src_addr = std::move(spec.addrs);
+    }
+    {
+        AddrSpec spec = parse_addr_spec(rule.dest_addr.value_or(""));
+        criteria.negate_dst_addr = spec.negate;
+        criteria.dst_addr = std::move(spec.addrs);
+    }
+    return criteria;
+}
 
 std::string firewall_set_fingerprint(const Config& config,
                                      const CacheManager& cache_manager,
