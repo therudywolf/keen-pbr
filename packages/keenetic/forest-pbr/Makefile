@@ -79,6 +79,7 @@ endif
 # forest-pbr blocks
 #
 
+# Keep +dnsmasq: it is the LAN DNS (dns-override), and opkg removes an auto-installed dnsmasq(-full) on upgrade without it.
 define Package/forest-pbr
   SECTION:=net
   CATEGORY:=Network
@@ -136,6 +137,7 @@ endef
 # forest-pbr-headless blocks
 #
 
+# Keep +dnsmasq: it is the LAN DNS (dns-override), and opkg removes an auto-installed dnsmasq(-full) on upgrade without it.
 define Package/forest-pbr-headless
   SECTION:=net
   CATEGORY:=Network
