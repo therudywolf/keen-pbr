@@ -1,0 +1,97 @@
+name: Build Keenetic packages
+
+# forest-pbr and forest-pbr-headless .ipk for the KN-1011 (Entware
+# mipsel-3.4), built in the Entware builder image the way
+# build_scripts/keenetic.mk does locally. The packages end up in the run's
+# artifacts; nothing is published.
+
+on:
+  push:
+    branches:
+      - 'port/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Entware config: build_scripts/keenetic.mk pulls
+  # ghcr.io/maksimkurb/entware-builder:$KEENETIC_CONFIG.
+  KEENETIC_CONFIG: mipsel-3.4
+  # Channel directory collect-keenetic.sh writes below build/packages/keenetic/
+  # (upstream's CI and releases use "current").
+  KEENETIC_VERSION: current
+
+jobs:
+  script-tests:
+    name: Keenetic script tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run tests/keenetic
+        run: sh tests/keenetic/run.sh
+
+  frontend:
+    name: Build frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - name: Build frontend
+        run: make frontend-build
+      - name: Upload frontend bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          include-hidden-files: true
+          if-no-files-found: error
+
+  packages:
+    name: "Build packages: mipsel-3.4"
+    needs: [script-tests, frontend]
+    runs-on: ubuntu-24.04
+    steps:
+      # The package release is the commit time of HEAD
+      # (build_scripts/resolve-version.sh), which the default single-commit
+      # checkout has; it is computed here and handed to the builder container.
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Download frontend bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend-artifact
+      - name: Stage frontend dist
+        run: |
+          rm -rf frontend/dist
+          mkdir -p frontend/dist
+          cp -a frontend-artifact/. frontend/dist/
+          # Built from this commit by the frontend job. Make it newer than the
+          # checked-out sources, or ensure-frontend-dist.sh rebuilds it inside
+          # the builder container.
+          find frontend/dist -exec touch {} +
+      - name: Build packages
+        run: |
+          make keenetic-packages \
+            KEENETIC_CONFIG="$KEENETIC_CONFIG" \
+            KEENETIC_VERSION="$KEENETIC_VERSION"
+      - name: List packages
+        run: find build/packages -type f -name '*.ipk' -exec ls -l {} +
+      - name: Upload packages
+        uses: actions/upload-artifact@v6
+        with:
+          name: forest-pbr-keenetic-mipsel-3.4
+          path: build/packages/**/*.ipk
+          if-no-files-found: error
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v6
+        with:
+          name: forest-pbr-keenetic-mipsel-3.4-debug
+          path: build/packages/keenetic-debug
+          if-no-files-found: warn
