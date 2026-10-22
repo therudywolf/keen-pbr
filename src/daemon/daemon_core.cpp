@@ -21,6 +21,7 @@
 #include "../routing/conntrack_flush.hpp"
 #include "../util/daemon_signals.hpp"
 #include "../dns/dns_probe_server.hpp" // IWYU pragma: keep
+#include "guarded_invoke.hpp"
 #include "scheduler.hpp"
 
 #ifdef WITH_API
@@ -333,8 +334,14 @@ void Daemon::handle_control_commands() {
         commands.swap(control_tasks_);
     }
 
+    // Each task is guarded on its own: a throwing task must neither stop the
+    // event loop nor drop the tasks queued after it in this batch.
     for (auto& command : commands) {
-        command.callback();
+        if (const auto error = invoke_guarded(command.callback)) {
+            Logger::instance().error("Control task '{}' failed: {}",
+                                     command.label,
+                                     *error);
+        }
     }
 }
 
@@ -585,14 +592,22 @@ void Daemon::run_event_loop() {
 
         retired_fds_.clear();
         for (int i = 0; i < nfds; ++i) {
+            // epoll_event is packed on some ABIs: copy the fields before use.
+            const int fd = events[i].data.fd;
+            const uint32_t fd_events = events[i].events;
             // A handler earlier in this batch may have closed an fd; skip any
             // remaining event for a retired fd number so a recycled fd is not
             // dispatched to a stale or wrong callback. epoll re-reports a
             // genuinely-ready re-registered fd on the next wait.
-            if (retired_fds_.count(events[i].data.fd) != 0) {
+            if (retired_fds_.count(fd) != 0) {
                 continue;
             }
-            dispatch_event_fd(events[i].data.fd, events[i].events);
+            // An exception from one handler is logged and the loop goes on:
+            // letting it escape would stop the daemon and drop its routes.
+            if (const auto error = invoke_guarded(
+                    [this, fd, fd_events]() { dispatch_event_fd(fd, fd_events); })) {
+                Logger::instance().error("Event handler for fd {} failed: {}", fd, *error);
+            }
         }
     }
 }

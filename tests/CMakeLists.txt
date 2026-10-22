@@ -37,6 +37,7 @@ add_executable(keen-pbr-tests
   test_trace_logging.cpp
   test_log_file_sink.cpp
   test_port_spec_util.cpp
+  test_guarded_invoke.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
   ../src/config/config_writer.cpp

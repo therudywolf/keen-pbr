@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../util/traced_mutex.hpp"
+#include "guarded_invoke.hpp"
 
 #include <chrono>
 #include <functional>
@@ -62,6 +63,7 @@ private:
         TaskCallback callback;
         bool repeating;
         std::string label;
+        RepeatingTaskFailures failures;
     };
 
     int create_timerfd(std::chrono::milliseconds initial, std::chrono::milliseconds interval);

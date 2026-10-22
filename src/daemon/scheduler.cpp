@@ -76,7 +76,7 @@ int Scheduler::schedule_repeating(std::chrono::milliseconds interval,
 
     {
         KPBR_LOCK_GUARD(entries_mutex_);
-        entries_.push_back({id, fd, std::move(cb), true, std::move(label)});
+        entries_.push_back({id, fd, std::move(cb), true, std::move(label), RepeatingTaskFailures{}});
     }
     Logger::instance().trace("scheduler_register",
                              "id={} timer_fd={} repeating=true",
@@ -101,7 +101,7 @@ int Scheduler::schedule_oneshot(std::chrono::milliseconds delay,
 
     {
         KPBR_LOCK_GUARD(entries_mutex_);
-        entries_.push_back({id, fd, std::move(cb), false, std::move(label)});
+        entries_.push_back({id, fd, std::move(cb), false, std::move(label), RepeatingTaskFailures{}});
     }
     Logger::instance().trace("scheduler_register",
                              "id={} timer_fd={} repeating=false",
@@ -119,6 +119,7 @@ void Scheduler::on_timer(int timer_fd, uint32_t /*events*/) {
     }
 
     // Find the entry and invoke its callback
+    int task_id = -1;
     bool repeating = false;
     TaskCallback cb;
     std::string label;
@@ -126,6 +127,7 @@ void Scheduler::on_timer(int timer_fd, uint32_t /*events*/) {
         KPBR_LOCK_GUARD(entries_mutex_);
         for (const auto& entry : entries_) {
             if (entry.timer_fd == timer_fd) {
+                task_id = entry.id;
                 cb = entry.callback;
                 repeating = entry.repeating;
                 label = entry.label;
@@ -141,7 +143,39 @@ void Scheduler::on_timer(int timer_fd, uint32_t /*events*/) {
         remove_entry(timer_fd);
     }
     Logger::instance().trace("scheduler_fire", "timer_fd={} label={}", timer_fd, label);
-    cb();
+
+    // A throwing task must not take the event loop down (that would stop the
+    // daemon and drop its routes); log it instead. A repeating task that
+    // keeps throwing is disabled rather than failing on every tick.
+    const auto error = invoke_guarded(cb);
+    if (error) {
+        Logger::instance().error("Scheduled task '{}' failed: {}", label, *error);
+    }
+    if (!repeating) {
+        return;
+    }
+
+    // Look the entry up by id, not by fd: the callback may have cancelled
+    // its own task and a new timer may already reuse the fd number.
+    bool disable = false;
+    int consecutive_failures = 0;
+    {
+        KPBR_LOCK_GUARD(entries_mutex_);
+        for (auto& entry : entries_) {
+            if (entry.id == task_id) {
+                disable = entry.failures.record(error.has_value());
+                consecutive_failures = entry.failures.consecutive();
+                break;
+            }
+        }
+    }
+    if (disable) {
+        Logger::instance().error(
+            "Scheduled task '{}' disabled after {} consecutive failures",
+            label,
+            consecutive_failures);
+        cancel(task_id);
+    }
 }
 
 void Scheduler::cancel(int task_id) {
