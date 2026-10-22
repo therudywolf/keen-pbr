@@ -31,6 +31,9 @@ export interface DaemonConfig {
   /** Maximum allowed size in bytes for downloaded remote content such as URL-backed lists. Defaults to 8 MiB.
    */
   max_file_size_bytes?: number;
+  /** Whether a full firewall apply (config save, list refresh reload, runtime start) empties the dnsmasq-filled kpbr4d_/kpbr6d_ sets. Defaults to `false` when omitted or null: the learned addresses are kept, so domain traffic stays on its outbound after a save instead of leaving via the default route until dnsmasq or the list warmer refills the sets. The addresses of a domain removed from a list then stay in its set until their timeout expires. A set whose family or timeout changed is recreated (emptied) either way. iptables backend only.
+   */
+  clear_dynamic_sets_on_apply?: boolean | null;
   /**
      * Deadline in seconds for every helper process the daemon starts (ipset/iptables-restore, the dnsmasq hook, capability probes). A helper still running at the deadline is sent SIGTERM, then SIGKILL after exec_kill_grace_seconds, so a hung helper cannot block the daemon. Defaults to 90 when omitted or null (restores and dnsmasq restarts are slow on MIPS routers).
 

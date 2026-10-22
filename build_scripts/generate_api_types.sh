@@ -6,12 +6,16 @@ mkdir -p "$REPO_ROOT/src/api/generated"
 # Step 1: Extract components/schemas from the OpenAPI 3.1 YAML and create a
 # JSON Schema $defs document with a synthetic root that references ALL schemas.
 # This ensures QuickType generates types for config, health, cache, and routing.
-# Uses only Node.js tooling: npx js-yaml + node built-ins.
-SCHEMA_TMP="$(mktemp /tmp/keen-pbr-schema-XXXXXX.json)"
-TYPES_TMP="$(mktemp /tmp/keen-pbr-types-XXXXXX.hpp)"
-trap 'rm -f "$SCHEMA_TMP" "$TYPES_TMP"' EXIT
+# Uses only Node.js tooling: npx js-yaml + node built-ins. Tool versions are
+# pinned: an unpinned quicktype (26.x) rewrites the whole header differently.
+# QuickType names the root type after the output file, so the file name is
+# fixed (inside a private temp dir) to keep the generated header reproducible.
+GEN_TMP="$(mktemp -d /tmp/keen-pbr-gen-XXXXXX)"
+SCHEMA_TMP="$GEN_TMP/keen-pbr-schema.json"
+TYPES_TMP="$GEN_TMP/keen-pbr-types.hpp"
+trap 'rm -rf "$GEN_TMP"' EXIT
 
-npx --yes js-yaml "$REPO_ROOT/docs/openapi.yaml" \
+npx --yes js-yaml@4.1.0 "$REPO_ROOT/docs/openapi.yaml" \
   | node -e "
 let d = '';
 process.stdin.on('data', c => d += c);
@@ -60,7 +64,7 @@ process.stdin.on('end', () => {
 " > "$SCHEMA_TMP"
 
 # Step 2: Run QuickType to generate C++ types
-npx --yes quicktype \
+npx --yes quicktype@23.2.6 \
   --lang cpp \
   --src "$SCHEMA_TMP" \
   --src-lang schema \
