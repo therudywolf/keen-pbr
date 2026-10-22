@@ -1,12 +1,26 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace keen_pbr3 {
+
+namespace detail {
+// True when the TC (truncated) flag of a DNS response is set.
+bool dns_response_is_truncated(const unsigned char* packet, std::size_t size);
+// True when `packet` is a response to our query: same transaction ID, QR set,
+// standard opcode, and exactly one question for `domain` with `record_type`
+// (ns_t_txt, ns_t_a, ...) and class IN. The RCODE is not checked.
+bool dns_response_matches_query(const unsigned char* packet,
+                                std::size_t size,
+                                std::uint16_t transaction_id,
+                                const std::string& domain,
+                                int record_type);
+} // namespace detail
 
 struct ResolverConfigHashTxtValue {
     std::optional<std::int64_t> ts;
