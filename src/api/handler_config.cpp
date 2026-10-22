@@ -88,7 +88,7 @@ void register_config_handler(ApiServer& server, ApiContext& ctx) {
         return nlohmann::json(resp).dump();
     });
 
-    // POST /api/config/save - dry-run check, persist staged config, apply immediately
+    // POST /api/config/save - dry-run check, apply staged config, then persist it
     server.post("/api/config/save", [&ctx]() -> std::string {
         ctx.begin_save_operation();
 
@@ -126,16 +126,20 @@ void register_config_handler(ApiServer& server, ApiContext& ctx) {
             throw ApiError("Dry-run apply check failed", 500, error_payload.dump());
         }
 
-        // Phase 2: write + commit/apply.
+        // Phase 2: apply, then persist. config.json is written only once the
+        // routing runtime runs the new config: a config that failed to apply
+        // and was rolled back must not become the one loaded on next boot.
         try {
-            write_config_atomically(ctx.config_path, staged_snapshot->second);
             ConfigApplyResult apply_result =
                 ctx.enqueue_apply_validated_config(staged_snapshot->first, staged_snapshot->second);
 
-            if (!apply_result.error.empty()) {
+            if (!apply_result.error.empty() || !apply_result.applied) {
+                const std::string reason = apply_result.error.empty()
+                    ? std::string("apply did not complete")
+                    : apply_result.error;
                 nlohmann::json error_payload = {
-                    {"error", std::string("Commit/apply failed: ") + apply_result.error},
-                    {"saved", true},
+                    {"error", std::string("Commit/apply failed: ") + reason},
+                    {"saved", false},
                     {"applied", apply_result.applied},
                     {"rolled_back", apply_result.rolled_back},
                 };
@@ -146,10 +150,31 @@ void register_config_handler(ApiServer& server, ApiContext& ctx) {
             // its exec deadlines.
             apply_exec_timeouts(staged_snapshot->first);
 
+            try {
+                write_config_atomically(ctx.config_path, staged_snapshot->second);
+                apply_result.saved = true;
+            } catch (const std::exception& e) {
+                Logger::instance().error("Config applied but could not be saved to {}: {}",
+                                         ctx.config_path, e.what());
+                // The runtime already runs this config while the file keeps
+                // the old one. Keep it staged (unless a newer draft arrived)
+                // so the UI still offers to save it.
+                if (!ctx.config_is_draft()) {
+                    ctx.stage_config(staged_snapshot->first, staged_snapshot->second);
+                }
+                nlohmann::json error_payload = {
+                    {"error", std::string("Config applied but could not be saved: ") + e.what()},
+                    {"saved", false},
+                    {"applied", true},
+                    {"rolled_back", false},
+                };
+                throw ApiError("Config applied but could not be saved", 500, error_payload.dump());
+            }
+
             nlohmann::json response = {
                 {"status", "ok"},
                 {"message", "Config saved and applied"},
-                {"saved", true},
+                {"saved", apply_result.saved},
                 {"applied", apply_result.applied},
                 {"rolled_back", apply_result.rolled_back},
             };

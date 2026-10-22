@@ -47,8 +47,11 @@ inline std::string serialize_config_pretty(const Config& config) {
 
 // Atomically replace the file at `config_path` with `body`.
 // =========================================================
-// Writes to `<config_path>.tmp`, fsyncs it, renames it over the target, then
-// fsyncs the containing directory so the rename is durable. Throws
+// Writes a unique temporary file (mkstemp, ".<name>.tmp.XXXXXX" in the same
+// directory), fsyncs it, renames it over the target, then fsyncs the
+// containing directory so the rename is durable. The owner and mode of an
+// existing config are kept; a newly created config is private (0600). A
+// target that is not a regular file (e.g. a symlink) is refused. Throws
 // std::runtime_error (with the errno reason) on any failure, leaving the
 // previous file untouched and removing the temp file.
 //

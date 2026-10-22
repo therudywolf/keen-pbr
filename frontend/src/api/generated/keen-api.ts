@@ -735,7 +735,7 @@ export const usePostConfig = <TError = ErrorResponse,
     }
 
 /**
- * Persists the currently staged in-memory config to disk and then applies it to the routing runtime.
+ * Applies the currently staged in-memory config to the routing runtime and, only once that succeeded, persists it to disk. A config that fails to apply is rolled back and never written, so the daemon does not boot into it. The `saved`, `applied` and `rolled_back` fields of the error body tell how far the operation got.
 
  * @summary Apply staged config
  */

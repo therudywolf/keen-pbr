@@ -26,6 +26,9 @@ enum class ConfigOperationState : uint8_t {
 };
 
 struct ConfigApplyResult {
+    // config.json was written. POST /api/config/save writes it only after
+    // the config was applied, so a rolled-back config is never persisted.
+    bool saved{false};
     bool applied{false};
     bool rolled_back{false};
     std::optional<std::int64_t> apply_started_ts;
@@ -175,7 +178,7 @@ struct ApiContext {
 //   POST /api/lists/refresh   - refresh one or all URL-backed lists
 //   GET  /api/config          - return current config and draft status
 //   POST /api/config          - validate + stage config in memory
-//   POST /api/config/save     - persist staged config and apply it
+//   POST /api/config/save     - apply staged config, then persist it
 //   GET  /api/health/routing  - routing and firewall health verification
 //   GET  /api/runtime/outbounds - live outbound/interface runtime state
 //   GET  /api/runtime/interfaces - live system interface inventory

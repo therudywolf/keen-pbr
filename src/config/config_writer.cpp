@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <vector>
 
 namespace keen_pbr3 {
 
@@ -57,14 +58,41 @@ void write_config_atomically(const std::string& config_path,
     const std::filesystem::path dir_path = config_fs_path.has_parent_path()
                                                ? config_fs_path.parent_path()
                                                : std::filesystem::path(".");
-    const std::string tmp_path = config_path + ".tmp";
 
-    int tmp_fd = -1;
+    // lstat: a symlinked config.json would otherwise be replaced by a plain
+    // file, or a link planted there could redirect the write.
+    struct stat existing {};
+    const bool exists = ::lstat(config_path.c_str(), &existing) == 0;
+    if (!exists && errno != ENOENT) {
+        throw make_errno_error("Cannot inspect config file");
+    }
+    if (exists && !S_ISREG(existing.st_mode)) {
+        throw std::runtime_error("Refusing to replace non-regular config file: " + config_path);
+    }
+    const mode_t mode = exists ? (existing.st_mode & 07777) : (S_IRUSR | S_IWUSR);
+
+    // A unique name: concurrent writers (API save, auto-heal worker) never
+    // share or truncate each other's temporary file.
+    std::string tmp_template =
+        (dir_path / ("." + config_fs_path.filename().string() + ".tmp.XXXXXX")).string();
+    std::vector<char> tmp_name(tmp_template.begin(), tmp_template.end());
+    tmp_name.push_back('\0');
+
+    int tmp_fd = ::mkstemp(tmp_name.data());
+    if (tmp_fd < 0) {
+        throw make_errno_error("Cannot create temporary config file");
+    }
+    const std::string tmp_path(tmp_name.data());
+
     try {
-        tmp_fd = ::open(tmp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
-                        S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-        if (tmp_fd < 0) {
-            throw make_errno_error("Cannot open temporary config file");
+        if (::fcntl(tmp_fd, F_SETFD, FD_CLOEXEC) != 0) {
+            throw make_errno_error("Cannot mark temporary config file close-on-exec");
+        }
+        if (exists && ::fchown(tmp_fd, existing.st_uid, existing.st_gid) != 0) {
+            throw make_errno_error("Cannot preserve config file ownership");
+        }
+        if (::fchmod(tmp_fd, mode) != 0) {
+            throw make_errno_error("Cannot set config file mode");
         }
 
         write_all_or_throw(tmp_fd, body);
@@ -81,7 +109,7 @@ void write_config_atomically(const std::string& config_path,
         }
 
         const auto dir_path_string = dir_path.string();
-        const int dir_fd = ::open(dir_path_string.c_str(), O_RDONLY | O_CLOEXEC);
+        const int dir_fd = ::open(dir_path_string.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
         if (dir_fd < 0) {
             throw make_errno_error("Cannot open config directory for fsync");
         }
