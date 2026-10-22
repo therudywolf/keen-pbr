@@ -8,6 +8,12 @@ DNSMASQ_FALLBACK_FILE="/opt/etc/forest-pbr/dnsmasq-fallback.conf"
 STATE_DIR="/tmp/forest-pbr"
 ACTIVE_FILE="${STATE_DIR}/active"
 
+# The last line of every generated config (src/dns/dnsmasq_gen.cpp), as a
+# regular expression:
+#   txt-record=config-hash.keen.pbr,<unix time>|<config hash>
+# The daemon reads the record back to see which config dnsmasq has loaded.
+CONFIG_HASH_RECORD='txt-record=config-hash\.keen\.pbr,'
+
 log_message() {
     local level="$1"
     local message="$2"
@@ -39,6 +45,18 @@ active_conf_line() {
     "$KEEN_PBR_BIN" --config "$CONFIG_PATH" generate-resolver-config "$(resolver_type)"
 }
 
+# Print forest-pbr's generated config, or nothing and fail when generation
+# fails (RCI not answering for a keenetic DNS server, a broken config). The
+# output is collected first, so a run that fails half-way never hands dnsmasq
+# a partial config; a complete one ends with the config-hash record.
+generated_config() {
+    local config
+
+    config="$(active_conf_line)" || return 1
+    printf '%s\n' "$config" | grep -q "^$CONFIG_HASH_RECORD" || return 1
+    printf '%s\n' "$config"
+}
+
 is_active() {
     [ -r "$ACTIVE_FILE" ] || return 1
 
@@ -51,14 +69,24 @@ set_active_state() {
     printf '%s\n' "$1" > "$ACTIVE_FILE"
 }
 
+# dnsmasq treats a conf-script that fails as a fatal error and does not start,
+# which leaves the whole LAN without DNS. So when the config cannot be
+# generated, dnsmasq gets the fallback config entry instead.
 emit_dnsmasq_config_entry() {
-    if is_active; then
-        active_conf_line
-        log_info "Produced dnsmasq forest-pbr managed config"
-    else
+    local config
+
+    if ! is_active; then
         fallback_conf_line
         log_info "Produced dnsmasq fallback config entry"
+        return 0
     fi
+    if config="$(generated_config)"; then
+        printf '%s\n' "$config"
+        log_info "Produced dnsmasq forest-pbr managed config"
+        return 0
+    fi
+    fallback_conf_line
+    log_warn "forest-pbr could not generate the dnsmasq config; produced the fallback config entry instead"
 }
 
 activate_dnsmasq() {
@@ -77,12 +105,10 @@ resolver_config_hash_file() {
     echo "${STATE_DIR}/resolver-config.hash"
 }
 
+# What dnsmasq-config-entry hands dnsmasq, without the logging.
 effective_config_content() {
-    if is_active; then
-        active_conf_line
-    else
-        fallback_conf_line
-    fi
+    is_active && generated_config && return 0
+    fallback_conf_line
 }
 
 dnsmasq_is_running() {
@@ -126,7 +152,9 @@ EOF
 
 case "$1" in
     dnsmasq-config-entry)
-        emit_dnsmasq_config_entry
+        # Never fail, whatever goes wrong above (see emit_dnsmasq_config_entry).
+        emit_dnsmasq_config_entry || true
+        exit 0
         ;;
     activate)
         activate_dnsmasq
