@@ -29,6 +29,8 @@ import type {
   ConfigStateResponse,
   ConfigUpdateResponse,
   ErrorResponse,
+  GetListsAudit200,
+  GetMetricsTraffic200,
   HealthResponse,
   ListRefreshRequest,
   ListRefreshResponse,
@@ -1256,6 +1258,236 @@ export function useGetRuntimeInterfaces<TData = Awaited<ReturnType<typeof getRun
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetRuntimeInterfacesQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+/**
+ * Returns per-outbound packet and byte counters read from the mangle `KeenPbrTable` chain (`iptables -t mangle -L KeenPbrTable -v -x -n`). Counters for each outbound are summed across the per-inbound-interface MARK rules that share its fwmark. The counters are kernel rule counters and therefore accumulate since the last firewall apply (a rebuild resets them to zero). If the iptables listing cannot be read (for example the routing runtime is stopped), `outbounds` is returned as an empty array with HTTP 200.
+
+ * @summary Per-outbound traffic counters
+ */
+export type getMetricsTrafficResponse200 = {
+  data: GetMetricsTraffic200
+  status: 200
+}
+
+export type getMetricsTrafficResponseSuccess = (getMetricsTrafficResponse200) & {
+  headers: Headers;
+};
+;
+
+export type getMetricsTrafficResponse = (getMetricsTrafficResponseSuccess)
+
+export const getGetMetricsTrafficUrl = () => {
+
+
+
+
+  return `/api/metrics/traffic`
+}
+
+export const getMetricsTraffic = async ( options?: RequestInit): Promise<getMetricsTrafficResponse> => {
+
+  return apiFetch<getMetricsTrafficResponse>(getGetMetricsTrafficUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMetricsTrafficQueryKey = () => {
+    return [
+    `/api/metrics/traffic`
+    ] as const;
+    }
+
+
+export const getGetMetricsTrafficQueryOptions = <TData = Awaited<ReturnType<typeof getMetricsTraffic>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMetricsTraffic>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMetricsTrafficQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMetricsTraffic>>> = ({ signal }) => getMetricsTraffic({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMetricsTraffic>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetMetricsTrafficQueryResult = NonNullable<Awaited<ReturnType<typeof getMetricsTraffic>>>
+export type GetMetricsTrafficQueryError = unknown
+
+
+export function useGetMetricsTraffic<TData = Awaited<ReturnType<typeof getMetricsTraffic>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMetricsTraffic>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMetricsTraffic>>,
+          TError,
+          Awaited<ReturnType<typeof getMetricsTraffic>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetMetricsTraffic<TData = Awaited<ReturnType<typeof getMetricsTraffic>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMetricsTraffic>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMetricsTraffic>>,
+          TError,
+          Awaited<ReturnType<typeof getMetricsTraffic>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetMetricsTraffic<TData = Awaited<ReturnType<typeof getMetricsTraffic>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMetricsTraffic>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Per-outbound traffic counters
+ */
+
+export function useGetMetricsTraffic<TData = Awaited<ReturnType<typeof getMetricsTraffic>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getMetricsTraffic>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetMetricsTrafficQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+/**
+ * Reports list contents that are likely to misroute traffic. Advisory only: these findings never block a config save, because both kinds are judgement calls rather than errors.
+`oversized_range` — an IP range broader than a /16 (or an IPv6 prefix shorter than /48) in a list referenced by an enabled rule. A range this wide carries unrelated services with it; one such list held 68 CIDRs covering 86 million addresses across four cloud providers, which split smart-home devices across two paths depending on which DNS answer they got.
+`shadowed_domain` — a domain entry that is a parent of an entry in a different list routing to a different outbound. dnsmasq's `ipset=/example.com/` matches every subdomain, so the broader entry silently wins and the more specific list appears to stop working.
+`unused_list` — a list with content that no enabled rule references, so it routes nothing. This is a half-finished intent that reads as done: the curated list sits in the UI looking correct while its traffic takes the default path.
+The two content checks examine only lists referenced by enabled rules. Entries that fail to resolve are NOT reported here — that needs live DNS, which the leak scanner covers.
+
+ * @summary Advisory audit of the lists in use
+ */
+export type getListsAuditResponse200 = {
+  data: GetListsAudit200
+  status: 200
+}
+
+export type getListsAuditResponseSuccess = (getListsAuditResponse200) & {
+  headers: Headers;
+};
+;
+
+export type getListsAuditResponse = (getListsAuditResponseSuccess)
+
+export const getGetListsAuditUrl = () => {
+
+
+
+
+  return `/api/lists/audit`
+}
+
+export const getListsAudit = async ( options?: RequestInit): Promise<getListsAuditResponse> => {
+
+  return apiFetch<getListsAuditResponse>(getGetListsAuditUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetListsAuditQueryKey = () => {
+    return [
+    `/api/lists/audit`
+    ] as const;
+    }
+
+
+export const getGetListsAuditQueryOptions = <TData = Awaited<ReturnType<typeof getListsAudit>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getListsAudit>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetListsAuditQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getListsAudit>>> = ({ signal }) => getListsAudit({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getListsAudit>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetListsAuditQueryResult = NonNullable<Awaited<ReturnType<typeof getListsAudit>>>
+export type GetListsAuditQueryError = unknown
+
+
+export function useGetListsAudit<TData = Awaited<ReturnType<typeof getListsAudit>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getListsAudit>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getListsAudit>>,
+          TError,
+          Awaited<ReturnType<typeof getListsAudit>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetListsAudit<TData = Awaited<ReturnType<typeof getListsAudit>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getListsAudit>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getListsAudit>>,
+          TError,
+          Awaited<ReturnType<typeof getListsAudit>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetListsAudit<TData = Awaited<ReturnType<typeof getListsAudit>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getListsAudit>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Advisory audit of the lists in use
+ */
+
+export function useGetListsAudit<TData = Awaited<ReturnType<typeof getListsAudit>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getListsAudit>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetListsAuditQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

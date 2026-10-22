@@ -31,4 +31,31 @@ export interface DaemonConfig {
   /** Maximum allowed size in bytes for downloaded remote content such as URL-backed lists. Defaults to 8 MiB.
    */
   max_file_size_bytes?: number;
+  /**
+     * Cadence in seconds at which the daemon re-resolves each list's domains via a direct public-resolver query (bypassing dnsmasq's cache) and refreshes the matching kpbr*d_<list> ipset entries. Set to 0 to disable warming. Defaults to 600 (10 minutes) when omitted or null.
+
+     * @minimum 0
+     */
+  list_warmer_interval_seconds?: number | null;
+  /** Public DNS resolver address used by the list warmer. May be a bare IPv4 ("1.1.1.1") or "ip:port" form. Must NOT point at the local dnsmasq, since the entire point of the warmer is to bypass that cache. Defaults to "1.1.1.1" when omitted or null.
+   */
+  list_warmer_upstream_dns?: string | null;
+  /** Enables the periodic auto-heal worker. When false (the default), the worker never starts and auto-heal only acts on explicit POST /api/autoheal/promote calls — routing is never changed on its own. When true AND autoheal_watchlist is non-empty, a background worker re-checks the watchlist domains every autoheal_interval_seconds and promotes any that are leaking (resolving to a non-autoheal_outbound) into autoheal_list, then persists and reapplies config exactly like POST /api/config/save. The worker only ADDS domains; it never removes or reorders anything.
+   */
+  autoheal_enabled?: boolean | null;
+  /**
+     * Cadence in seconds at which the auto-heal worker re-checks the watchlist domains. Ignored unless autoheal_enabled is true and autoheal_watchlist is non-empty. Defaults to 900 (15 minutes) when omitted or null.
+
+     * @minimum 1
+     */
+  autoheal_interval_seconds?: number | null;
+  /** Domains the auto-heal worker is ALLOWED to promote automatically. Empty (the default) means the worker no-ops even when autoheal_enabled is true: nothing is ever promoted unless it appears on this list. A watchlist domain is promoted into autoheal_list only when it is currently leaking (its resolved routing does not go to autoheal_outbound) and it is not already present in autoheal_list.
+   */
+  autoheal_watchlist?: string[] | null;
+  /** Name of the high-priority list that auto-heal promotes leaking domains into. Both POST /api/autoheal/promote and the periodic auto-heal worker append domains to this list and guarantee a route rule for it sits at the top of route.rules. Defaults to "auto" when omitted or null.
+   */
+  autoheal_list?: string | null;
+  /** Outbound tag the auto-heal top-priority route rule routes to. Also the outbound the worker treats as the intended destination when deciding whether a watchlist domain is leaking. Defaults to "forestserver_ru" when omitted or null.
+   */
+  autoheal_outbound?: string | null;
 }
