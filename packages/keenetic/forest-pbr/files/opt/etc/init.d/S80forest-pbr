@@ -12,6 +12,7 @@ DESC="forest-pbr"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 IPSET_PROBE_SET="kpbr_probe_hash_net"
 IPSET_COMPONENTS_MESSAGE="ipset kernel modules are not available. Make sure that you followed the installation process and installed all required components: Netfilter Subsystem Kernel Modules and Xtables-addons Extension Package for Netfilter."
+KEENETIC_RCI_STARTUP_ATTEMPTS=5
 
 # Hand the optional persistent log file down to the daemon environment so its
 # activity survives a reboot. Skipped silently when the value is unset.
@@ -97,10 +98,21 @@ ipset_hash_net_available() {
     return 1
 }
 
+# Print an RCI answer, bounded by curl -m. busybox wget -T segfaults on this
+# firmware and plain wget has no timeout at all (it waits for as long as RCI
+# keeps the connection open), so it is only the fallback without curl.
+fetch_rci() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fs -m 5 "http://127.0.0.1:79/rci/$1"
+    else
+        wget -O - "localhost:79/rci/$1"
+    fi
+}
+
 check_netfilter_addons_component() {
     local components
 
-    if ! components="$(wget -O - localhost:79/rci/show/version/ndw/components 2>/dev/null)"; then
+    if ! components="$(fetch_rci show/version/ndw/components 2>/dev/null)"; then
         log_error "Failed to fetch installed Keenetic components"
         return 0
     fi
@@ -114,6 +126,36 @@ check_netfilter_addons_component() {
             return 0
             ;;
     esac
+}
+
+# The daemon validates a keenetic DNS server against /rci/show/version, so give
+# RCI a few seconds to come up. Every attempt is bounded by curl -m; without
+# curl there is no safe way to bound it (see fetch_rci), so the wait is skipped.
+wait_for_keenetic_rci() {
+    local attempt=1
+
+    if ! command -v curl >/dev/null 2>&1; then
+        log "curl is not installed; not waiting for Keenetic RCI"
+        return 0
+    fi
+
+    while [ "$attempt" -le "$KEENETIC_RCI_STARTUP_ATTEMPTS" ]; do
+        if curl -s -m 2 -o /dev/null http://127.0.0.1:79/rci/show/version; then
+            if [ "$attempt" -gt 1 ]; then
+                log "Keenetic RCI became available after $attempt attempts"
+            fi
+            return 0
+        fi
+
+        if [ "$attempt" -lt "$KEENETIC_RCI_STARTUP_ATTEMPTS" ]; then
+            log "Keenetic RCI is unavailable (attempt $attempt/$KEENETIC_RCI_STARTUP_ATTEMPTS); retrying in 1 second"
+            sleep 1
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    log_error "Keenetic RCI is still unavailable after $KEENETIC_RCI_STARTUP_ATTEMPTS attempts; continuing startup"
+    return 0
 }
 
 ensure_ipset_modules_loaded() {
@@ -224,6 +266,7 @@ signal_service() {
 
 prepare_start() {
     ensure_log_dir
+    wait_for_keenetic_rci
     check_runtime_dependencies
     disable_hwnat
 }
