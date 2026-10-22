@@ -29,6 +29,7 @@ add_executable(keen-pbr-tests
   test_list_audit.cpp
   test_runtime_interface_inventory.cpp
   test_api_config.cpp
+  test_api_dns_test.cpp
   test_api_runtime_interfaces.cpp
   test_api_test_routing.cpp
   test_api_static.cpp
@@ -172,6 +173,7 @@ if(WITH_API)
     ../src/api/server.cpp
     ../src/api/sse_broadcaster.cpp
     ../src/api/handler_config.cpp
+    ../src/api/handler_dns_test.cpp
     ../src/api/handler_runtime_interfaces.cpp
     ../src/api/handler_test_routing.cpp
     ../src/health/runtime_interface_inventory.cpp

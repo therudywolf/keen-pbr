@@ -4,12 +4,20 @@
 
 #include "../log/logger.hpp"
 
+#include <chrono>
 #include <httplib.h>
 #include <nlohmann/json.hpp>
+#include <string_view>
 
 namespace keen_pbr3 {
 
 namespace {
+
+// An idle stream is checked once per interval with an SSE comment line.
+// Writing it is what notices a client that went away, which releases the
+// httplib worker thread instead of parking it until the next DNS test query.
+constexpr auto kHeartbeatInterval = std::chrono::seconds{1};
+constexpr std::string_view kHeartbeatFrame = ": heartbeat\n\n";
 
 std::string make_sse_frame(const std::string& payload) {
     return "data: " + payload + "\n\n";
@@ -46,20 +54,27 @@ void register_dns_test_handler(ApiServer& server, ApiContext& ctx) {
                 }
 
                 std::string next_message;
+                bool have_message = false;
                 {
                     KPBR_UNIQUE_LOCK(lock, subscription->mutex);
-                    while (!subscription->closed && subscription->messages.empty()) {
-                        subscription->cv.wait(lock);
+                    if (!subscription->closed && subscription->messages.empty()) {
+                        subscription->cv.wait_for(lock, kHeartbeatInterval);
                     }
 
-                    if (subscription->messages.empty()) {
+                    if (!subscription->messages.empty()) {
+                        next_message = std::move(subscription->messages.front());
+                        subscription->messages.pop_front();
+                        have_message = true;
+                    } else if (subscription->closed) {
                         Logger::instance().trace("sse_done", "path=/api/dns/test");
                         sink.done();
                         return true;
                     }
+                }
 
-                    next_message = std::move(subscription->messages.front());
-                    subscription->messages.pop_front();
+                if (!have_message) {
+                    // Nothing happened: a failed heartbeat write ends the stream.
+                    return sink.write(kHeartbeatFrame.data(), kHeartbeatFrame.size());
                 }
 
                 const auto frame = make_sse_frame(next_message);
