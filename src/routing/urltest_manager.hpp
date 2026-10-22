@@ -123,6 +123,9 @@ private:
     mutable TracedSharedMutex mutex_;
     std::map<std::string, UrltestState> states_ GUARDED_BY(mutex_);
     std::uint64_t generation_ GUARDED_BY(mutex_){1};
+    // Rate limit of the "probe failed" warnings (kept across clear(), so a
+    // config apply does not repeat a warning about a failure that persists).
+    ProbeFailureLog probe_failure_log_ GUARDED_BY(mutex_);
 };
 
 } // namespace keen_pbr3

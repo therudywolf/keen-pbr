@@ -123,6 +123,13 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
                                           std::map<std::string, URLTestResult> results) {
     std::string new_selected;
     bool selection_changed = false;
+    // Probe outcomes worth a log line, emitted once the lock is released.
+    struct ProbeLogLine {
+        ProbeFailureLog::Action action;
+        std::string child_tag;
+        std::string error;
+    };
+    std::vector<ProbeLogLine> probe_log_lines;
 
     {
         KPBR_SHARED_UNIQUE_LOCK(lock, mutex_);
@@ -160,6 +167,15 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
                 cb_it->second.record_failure(child_tag);
             }
             state.last_results[child_tag] = result;
+
+            const auto action = probe_failure_log_.record(
+                urltest_tag + '\x1f' + child_tag,
+                result.success,
+                result.error,
+                ProbeFailureLog::Clock::now());
+            if (action != ProbeFailureLog::Action::none) {
+                probe_log_lines.push_back(ProbeLogLine{action, child_tag, result.error});
+            }
         }
 
         const std::string previous_selected = state.selected_outbound;
@@ -167,6 +183,22 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
         if (new_selected != previous_selected) {
             state.selected_outbound = new_selected;
             selection_changed = true;
+        }
+    }
+
+    // Failed probes used to be visible at trace level only. Rate limited
+    // (see ProbeFailureLog): first failure or a new error, then at most
+    // every 10 minutes while it lasts, and one line on recovery.
+    for (const auto& line : probe_log_lines) {
+        if (line.action == ProbeFailureLog::Action::log_failure) {
+            Logger::instance().warn("urltest probe failed: tag={} child={} error={}",
+                                    urltest_tag,
+                                    line.child_tag,
+                                    line.error.empty() ? std::string("unknown error") : line.error);
+        } else {
+            Logger::instance().info("urltest probe recovered: tag={} child={}",
+                                    urltest_tag,
+                                    line.child_tag);
         }
     }
 
