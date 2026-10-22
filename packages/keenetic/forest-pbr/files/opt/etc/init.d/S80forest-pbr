@@ -272,6 +272,25 @@ signal_service() {
     return 0
 }
 
+# rc.func asks `pidof $PROCS` whether the service runs. Answer from the PID file
+# the daemon writes: by name, any forest-pbr CLI process (download,
+# generate-resolver-config, one stuck in RCI at boot) passes for the daemon,
+# and start then reports "already running" with no daemon at all. A PID file
+# left behind by a killed daemon can name a recycled PID, so the process must
+# be forest-pbr as well. Other names go to the real pidof.
+pidof() {
+    local pid comm
+
+    [ "$1" = "$PROCS" ] || { command pidof "$@"; return $?; }
+    pid="$(cat "$PIDFILE" 2>/dev/null)" || return 1
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    read -r comm 2>/dev/null < "/proc/$pid/comm" || return 1
+    [ "$comm" = "$PROCS" ] || return 1
+    printf '%s\n' "$pid"
+}
+
 prepare_start() {
     ensure_log_dir
     wait_for_keenetic_rci
