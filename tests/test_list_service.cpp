@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <netinet/in.h>
@@ -393,6 +394,42 @@ TEST_CASE("refresh_remote_lists: 304 not modified does not log a warning") {
     CHECK(result.failed_lists.empty());
     CHECK(result.changed_lists.empty());
     CHECK_FALSE(logs.contains("failed to refresh"));
+
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("CacheManager::download: flushed update replaces the cache and leaves no temp files") {
+    CurlGlobalGuard curl_guard;
+    TestHttpServer server({
+        {"/list.txt", HttpResponse{200, "OK", "example.com\n10.0.0.0/8\n"}},
+        {"/gone.txt", HttpResponse{404, "Not Found", ""}},
+    });
+
+    const auto temp_dir = make_temp_dir();
+    CacheManager cache_manager(temp_dir);
+    cache_manager.ensure_dir();
+
+    const auto updated = cache_manager.download("remote", server.url("/list.txt"));
+    CHECK(updated.updated());
+    REQUIRE(cache_manager.has_cache("remote"));
+    {
+        std::ifstream body(cache_manager.cache_path("remote"));
+        std::ostringstream contents;
+        contents << body.rdbuf();
+        CHECK(contents.str() == "example.com\n10.0.0.0/8\n");
+    }
+    CHECK(cache_manager.load_metadata("remote").url == server.url("/list.txt"));
+
+    // A failed download must keep the previous cache untouched.
+    const auto failed = cache_manager.download("remote", server.url("/gone.txt"));
+    CHECK(failed.failed());
+    CHECK(cache_manager.has_cache("remote"));
+    CHECK(cache_manager.load_metadata("remote").url == server.url("/list.txt"));
+
+    for (const auto& entry : std::filesystem::directory_iterator(temp_dir)) {
+        CHECK_MESSAGE(entry.path().extension() != ".tmp",
+                      "leftover temporary file: " << entry.path().string());
+    }
 
     std::filesystem::remove_all(temp_dir);
 }
