@@ -488,17 +488,24 @@ case "$1" in
         ;;
 esac
 
-[ "$FOREST_PBR_SKIP_RC_FUNC" = yes ] && exit 0
+if [ "$FOREST_PBR_SKIP_RC_FUNC" = yes ]; then
+    rc=0
+else
+    # rc.func dispatches the action. It runs in a subshell so that the cleanup
+    # below still runs when it exits.
+    ( . /opt/etc/init.d/rc.func )
+    rc=$?
 
-# rc.func dispatches the action. It runs in a subshell so that the cleanup
-# below still runs when it exits.
-( . /opt/etc/init.d/rc.func )
-rc=$?
+    case "$1" in
+        stop|kill)
+            cleanup_after_stop
+            ;;
+    esac
+fi
 
-case "$1" in
-    stop|kill)
-        cleanup_after_stop
-        ;;
+# A caller that sourced this file (see launched_from_opkg_initrc) goes on with
+# its other init scripts, so it gets `return` where a forked run gets `exit`.
+case "$0" in
+    *rc.unslung*) return "$rc" ;;
 esac
-
 exit "$rc"
