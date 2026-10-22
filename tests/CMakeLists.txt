@@ -40,6 +40,7 @@ add_executable(keen-pbr-tests
   test_guarded_invoke.cpp
   test_pid_file.cpp
   test_refresh_coalescer.cpp
+  test_interface_monitor.cpp
   test_crash_diagnostics.cpp
   ../src/config/config.cpp
   ../src/config/config_writer.cpp
@@ -79,6 +80,7 @@ add_executable(keen-pbr-tests
   ../src/daemon/resolver_health.cpp
   ../src/http/http_client.cpp
   ../src/routing/netlink.cpp
+  ../src/routing/interface_monitor.cpp
   ../src/routing/conntrack_flush.cpp
   ../src/routing/autoheal.cpp
   ../src/routing/autoheal_worker.cpp

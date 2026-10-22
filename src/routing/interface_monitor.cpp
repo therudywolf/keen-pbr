@@ -1,9 +1,11 @@
 #include "interface_monitor.hpp"
 
+#include "../log/logger.hpp"
 #include "../util/format_compat.hpp"
 
 #include <cerrno>
 #include <cstring>
+#include <ifaddrs.h>
 #include <net/if.h>
 #include <linux/rtnetlink.h>
 #include <sys/socket.h>
@@ -21,6 +23,33 @@ namespace {
 
 constexpr int kLinkAttributeMax = IFLA_MAX + 1;
 
+// Subscribing to RTNLGRP_LINK triggers a burst of RTM_NEWLINK messages, and
+// NDM reconfigures many interfaces at once on network events. The kernel
+// charges only what is actually queued, so a large cap costs nothing while
+// the queue is drained.
+constexpr int kReceiveBufferBytes = 1024 * 1024;
+
+// One handle_events() call stops after this many overflow reports in a row;
+// epoll wakes it again while data is queued. Guards against a spin should
+// libnl keep returning NLE_NOMEM (it also uses it for allocation failures).
+constexpr int kMaxOverflowsPerDrain = 16;
+
+void set_receive_buffer(struct nl_sock* socket) {
+    // SO_RCVBUFFORCE ignores net.core.rmem_max (which caps the plain
+    // SO_RCVBUF that nl_socket_set_buffer_size uses); it needs CAP_NET_ADMIN,
+    // which the daemon has. The fallback is capped by rmem_max.
+    const int fd = nl_socket_get_fd(socket);
+    int size = kReceiveBufferBytes;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUFFORCE, &size, sizeof(size)) == 0) {
+        return;
+    }
+    const int err = nl_socket_set_buffer_size(socket, kReceiveBufferBytes, 0);
+    if (err < 0) {
+        throw InterfaceMonitorError(format(
+            "Failed to size interface monitor netlink buffer: {}", nl_geterror(err)));
+    }
+}
+
 } // namespace
 
 struct InterfaceMonitor::Impl {
@@ -28,11 +57,7 @@ struct InterfaceMonitor::Impl {
         : callback(std::move(callback)) {}
 
     ~Impl() {
-        if (socket) {
-            nl_close(socket);
-            nl_socket_free(socket);
-            socket = nullptr;
-        }
+        close_socket();
     }
 
     static int on_nl_message(struct nl_msg* msg, void* arg) {
@@ -41,7 +66,14 @@ struct InterfaceMonitor::Impl {
             return NL_OK;
         }
 
-        impl->handle_link_message(msg);
+        // An exception must not unwind through libnl's C frames.
+        try {
+            impl->handle_link_message(msg);
+        } catch (const std::exception& e) {
+            Logger::instance().error("Interface monitor callback failed: {}", e.what());
+        } catch (...) {
+            Logger::instance().error("Interface monitor callback failed: unknown error");
+        }
         return NL_OK;
     }
 
@@ -88,19 +120,44 @@ struct InterfaceMonitor::Impl {
         }
 
         interface_state[interface_name] = is_up;
-        callback(interface_name, is_up);
+        Event event;
+        event.interface_name = interface_name;
+        event.is_up = is_up;
+        callback(event);
+    }
+
+    // Reload the administrative state of every interface, so the next
+    // notification is compared against the kernel's view rather than against
+    // whatever the monitor saw before a disconnect or an overflow.
+    void load_interface_state() {
+        interface_state.clear();
+        struct ifaddrs* interfaces = nullptr;
+        if (getifaddrs(&interfaces) != 0) {
+            return;
+        }
+        for (auto* current = interfaces; current != nullptr; current = current->ifa_next) {
+            if (current->ifa_name != nullptr) {
+                interface_state[current->ifa_name] = (current->ifa_flags & IFF_UP) != 0;
+            }
+        }
+        freeifaddrs(interfaces);
     }
 
     InterfaceStateCallback callback;
     struct nl_sock* socket{nullptr};
     std::unordered_map<std::string, bool> interface_state;
 
-    void setup_socket() {
-        if (socket) {
-            nl_close(socket);
-            nl_socket_free(socket);
-            socket = nullptr;
+    void close_socket() {
+        if (!socket) {
+            return;
         }
+        nl_close(socket);
+        nl_socket_free(socket);
+        socket = nullptr;
+    }
+
+    void setup_socket() {
+        close_socket();
 
         socket = nl_socket_alloc();
         if (!socket) {
@@ -108,25 +165,25 @@ struct InterfaceMonitor::Impl {
                 "Failed to allocate netlink socket for interface monitor");
         }
 
-        int err = nl_connect(socket, NETLINK_ROUTE);
-        if (err < 0) {
-            throw InterfaceMonitorError(format(
-                "Failed to connect interface monitor netlink socket: {}", nl_geterror(err)));
-        }
+        try {
+            int err = nl_connect(socket, NETLINK_ROUTE);
+            if (err < 0) {
+                throw InterfaceMonitorError(format(
+                    "Failed to connect interface monitor netlink socket: {}", nl_geterror(err)));
+            }
 
-        // Subscribing to RTNLGRP_LINK triggers a burst of RTM_NEWLINK messages;
-        // the default socket receive buffer can overflow (ENOBUFS) before the
-        // daemon drains it. A 1 MiB receive buffer absorbs the startup burst.
-        err = nl_socket_set_buffer_size(socket, 1024 * 1024, 0);
-        if (err < 0) {
-            throw InterfaceMonitorError(format(
-                "Failed to size interface monitor netlink buffer: {}", nl_geterror(err)));
-        }
+            set_receive_buffer(socket);
 
-        err = nl_socket_add_memberships(socket, RTNLGRP_LINK, 0);
-        if (err < 0) {
-            throw InterfaceMonitorError(format(
-                "Failed to subscribe interface monitor to link group: {}", nl_geterror(err)));
+            err = nl_socket_add_memberships(socket, RTNLGRP_LINK, 0);
+            if (err < 0) {
+                throw InterfaceMonitorError(format(
+                    "Failed to subscribe interface monitor to link group: {}", nl_geterror(err)));
+            }
+        } catch (...) {
+            // Never leave a half-built socket behind: fd() must then report
+            // "not initialized" instead of handing out a dead descriptor.
+            close_socket();
+            throw;
         }
 
         nl_socket_set_nonblocking(socket);
@@ -136,6 +193,8 @@ struct InterfaceMonitor::Impl {
                             NL_CB_CUSTOM,
                             &InterfaceMonitor::Impl::on_nl_message,
                             this);
+
+        load_interface_state();
     }
 };
 
@@ -153,23 +212,56 @@ int InterfaceMonitor::fd() const {
     return nl_socket_get_fd(impl_->socket);
 }
 
+InterfaceMonitor::ReceiveStatus InterfaceMonitor::classify_receive(int nl_error,
+                                                                   int system_errno) noexcept {
+    if (nl_error >= 0) {
+        return ReceiveStatus::Message;
+    }
+    if (nl_error == -NLE_NOMEM) {
+        return ReceiveStatus::Overflow;
+    }
+    if (nl_error == -NLE_AGAIN || system_errno == EAGAIN || system_errno == EWOULDBLOCK) {
+        return ReceiveStatus::Drained;
+    }
+    return ReceiveStatus::Failed;
+}
+
 void InterfaceMonitor::handle_events() {
     if (!impl_ || !impl_->socket) {
         return;
     }
 
+    int overflows = 0;
     while (true) {
-        int err = nl_recvmsgs_default(impl_->socket);
-        if (err == 0) {
+        errno = 0;
+        const int err = nl_recvmsgs_default(impl_->socket);
+        const auto status = classify_receive(err, errno);
+        if (status == ReceiveStatus::Message) {
             continue;
         }
-
-        if (err == -NLE_AGAIN || errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (status == ReceiveStatus::Overflow) {
+            // The socket stays usable; only the dropped notifications are
+            // lost. Keep draining what is still queued, then resync.
+            if (++overflows >= kMaxOverflowsPerDrain) {
+                break;
+            }
+            continue;
+        }
+        if (status == ReceiveStatus::Drained) {
             break;
         }
 
         throw InterfaceMonitorError(
             format("Failed to receive interface monitor netlink messages: {}", nl_geterror(err)));
+    }
+
+    if (overflows > 0) {
+        impl_->load_interface_state();
+        if (impl_->callback) {
+            Event event;
+            event.resync = true;
+            impl_->callback(event);
+        }
     }
 }
 
@@ -178,11 +270,6 @@ void InterfaceMonitor::reconnect() {
         return;
     }
 
-    // The cached per-interface up/down state is stale after a disconnect: the
-    // kernel does not replay current link states on a fresh subscription. Drop
-    // it so the next event for each interface is treated as a change and
-    // re-evaluated, instead of being suppressed against an outdated value.
-    impl_->interface_state.clear();
     impl_->setup_socket();
 }
 

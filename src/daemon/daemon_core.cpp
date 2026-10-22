@@ -32,6 +32,8 @@ namespace keen_pbr3 {
 
 namespace {
 
+constexpr auto INTERFACE_MONITOR_RECONNECT_RETRY_DELAY = std::chrono::seconds{5};
+
 std::int64_t steady_duration_ms(std::chrono::steady_clock::time_point started_at) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started_at).count();
@@ -65,8 +67,8 @@ Daemon::Daemon(Config config,
     , opts_(std::move(opts))
     , firewall_(create_firewall(firewall_backend_preference(config_)))
     , interface_monitor_(std::make_unique<InterfaceMonitor>(
-          [this](const std::string& interface_name, bool is_up) {
-              handle_interface_state_change(interface_name, is_up);
+          [this](const InterfaceMonitor::Event& event) {
+              handle_interface_event(event);
           }))
     , netlink_()
     , route_table_(netlink_)
@@ -383,7 +385,7 @@ void Daemon::handle_sigusr1() {
     // No urltest probe round here: the netfilter hook fires SIGUSR1 on every
     // NDM netfilter rebuild (UPnP: about once a minute), which says nothing
     // about the candidates' health. A candidate whose link changes state is
-    // probed at once instead (see handle_interface_state_change).
+    // probed at once instead (see handle_interface_event).
     request_runtime_refresh("SIGUSR1");
 }
 
@@ -524,8 +526,17 @@ void Daemon::trigger_urltest_probes_for_interface(const std::string& interface_n
     }
 }
 
-void Daemon::handle_interface_state_change(const std::string& interface_name, bool is_up) {
+void Daemon::handle_interface_event(const InterfaceMonitor::Event& event) {
     auto& log = Logger::instance();
+    if (event.resync) {
+        // Notifications were dropped: whatever changed meanwhile is unknown,
+        // so rebuild everything once instead of reconnecting the socket.
+        log.warn("Interface monitor missed events (netlink queue overflow); resyncing");
+        request_runtime_refresh("Interface monitor resync");
+        return;
+    }
+
+    const std::string& interface_name = event.interface_name;
     if (!is_interface_outbound_in_use(interface_name)) {
         return;
     }
@@ -534,7 +545,7 @@ void Daemon::handle_interface_state_change(const std::string& interface_name, bo
     trigger_urltest_probes_for_interface(interface_name);
 
     const std::string reason = "Interface " + interface_name + " state changed to " +
-                               (is_up ? "UP" : "DOWN");
+                               (event.is_up ? "UP" : "DOWN");
     log.info("{}, iproute and firewall refresh triggered", reason);
     // Never refresh from inside the netlink receive loop: the refresh runs
     // iptables-restore for a while, and the socket queue overflows meanwhile.
@@ -542,10 +553,19 @@ void Daemon::handle_interface_state_change(const std::string& interface_name, bo
 }
 
 void Daemon::handle_interface_monitor_events(uint32_t events) {
-    if ((events & EPOLLIN) == 0) {
+    constexpr uint32_t relevant_events = EPOLLIN | EPOLLERR | EPOLLHUP;
+    if ((events & relevant_events) == 0) {
         return;
     }
     if (!interface_monitor_) {
+        return;
+    }
+
+    // An error or hangup without readable data would be reported again by
+    // every epoll_wait (level-triggered): rebuild the socket.
+    if ((events & (EPOLLERR | EPOLLHUP)) != 0 && (events & EPOLLIN) == 0) {
+        Logger::instance().error("Interface monitor fd reported epoll error/hangup");
+        reconnect_interface_monitor();
         return;
     }
 
@@ -553,38 +573,71 @@ void Daemon::handle_interface_monitor_events(uint32_t events) {
         interface_monitor_->handle_events();
     } catch (const std::exception& e) {
         Logger::instance().error("Interface monitor event handling failed: {}", e.what());
-
-        int old_fd = -1;
-        try {
-            old_fd = interface_monitor_->fd();
-        } catch (const std::exception&) {
-            // socket already gone; nothing to unregister
-        }
-
-        try {
-            interface_monitor_->reconnect();
-            // reconnect() builds a fresh netlink socket with a NEW fd and
-            // closes the old one. epoll and fd_entries_ must be updated, or
-            // interface events stop being delivered. Always unregister the
-            // old fd first: even when the new socket reuses the same fd
-            // number, this drops the now-stale fd_entries_ row before the
-            // fresh one is appended (remove is queued ahead of add).
-            const int new_fd = interface_monitor_->fd();
-            if (old_fd >= 0) {
-                remove_fd(old_fd, /*wait_for_completion=*/false,
-                          "interface-monitor-stale");
-            }
-            add_fd(new_fd,
-                   EPOLLIN,
-                   [this](uint32_t ev) { handle_interface_monitor_events(ev); },
-                   /*wait_for_completion=*/false,
-                   "interface-monitor");
-            Logger::instance().warn("Interface monitor reconnected after netlink error");
-        } catch (const std::exception& reconnect_error) {
-            Logger::instance().error("Interface monitor reconnect failed: {}",
-                                     reconnect_error.what());
-        }
+        reconnect_interface_monitor();
     }
+}
+
+void Daemon::register_interface_monitor_fd() {
+    if (!interface_monitor_) {
+        return;
+    }
+
+    const int fd = interface_monitor_->fd();
+    add_fd(fd,
+           EPOLLIN,
+           [this](uint32_t events) { handle_interface_monitor_events(events); },
+           true,
+           "interface-monitor");
+    interface_monitor_fd_ = fd;
+}
+
+void Daemon::unregister_interface_monitor_fd() {
+    if (!interface_monitor_fd_) {
+        return;
+    }
+
+    remove_fd(*interface_monitor_fd_, true, "interface-monitor");
+    interface_monitor_fd_.reset();
+}
+
+void Daemon::schedule_interface_monitor_reconnect_retry() {
+    if (!scheduler_ || interface_monitor_reconnect_task_id_ >= 0) {
+        return;
+    }
+
+    interface_monitor_reconnect_task_id_ = scheduler_->schedule_oneshot(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            INTERFACE_MONITOR_RECONNECT_RETRY_DELAY),
+        [this]() {
+            interface_monitor_reconnect_task_id_ = -1;
+            reconnect_interface_monitor();
+        },
+        "interface-monitor-reconnect");
+}
+
+void Daemon::reconnect_interface_monitor() {
+    if (!interface_monitor_) {
+        return;
+    }
+
+    // Drop the epoll registration while the old socket is still open: once
+    // it closes, its fd number can be recycled by the next socket or timer.
+    unregister_interface_monitor_fd();
+
+    try {
+        interface_monitor_->reconnect();
+        register_interface_monitor_fd();
+        Logger::instance().warn("Interface monitor reconnected after netlink error");
+    } catch (const std::exception& e) {
+        Logger::instance().error("Interface monitor reconnect failed: {}; retrying in {}s",
+                                 e.what(),
+                                 INTERFACE_MONITOR_RECONNECT_RETRY_DELAY.count());
+        schedule_interface_monitor_reconnect_retry();
+        return;
+    }
+
+    // Link changes during the outage were never delivered: resync once.
+    request_runtime_refresh("Interface monitor reconnected");
 }
 
 void Daemon::add_fd(int fd,
@@ -724,13 +777,7 @@ void Daemon::run() {
 
         setup_dns_probe();
 
-        if (interface_monitor_) {
-            add_fd(interface_monitor_->fd(),
-                   EPOLLIN,
-                   [this](uint32_t events) { handle_interface_monitor_events(events); },
-                   true,
-                   "interface-monitor");
-        }
+        register_interface_monitor_fd();
 
 #ifdef WITH_API
         setup_api();

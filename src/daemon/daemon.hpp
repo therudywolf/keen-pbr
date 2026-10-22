@@ -160,7 +160,14 @@ private:
     void cancel_pending_runtime_refresh(const char* why);
     void handle_sighup();
     void handle_interface_monitor_events(uint32_t events);
-    void handle_interface_state_change(const std::string& interface_name, bool is_up);
+    void handle_interface_event(const InterfaceMonitor::Event& event);
+    // Rebuild the monitor's netlink socket after a receive error or an epoll
+    // error/hangup. The old fd leaves epoll before the socket closes; a
+    // failed rebuild is retried every 5 s.
+    void reconnect_interface_monitor();
+    void register_interface_monitor_fd();
+    void unregister_interface_monitor_fd();
+    void schedule_interface_monitor_reconnect_retry();
     // Probe at once every urltest that has a candidate on this interface.
     void trigger_urltest_probes_for_interface(const std::string& interface_name);
     bool is_interface_outbound_in_use(const std::string& interface_name) const;
@@ -322,6 +329,10 @@ private:
     int runtime_refresh_task_id_{-1};
     // Reason of the trigger that armed the pending refresh (for the log).
     std::string runtime_refresh_reason_;
+    // Retry task for an interface monitor reconnect that failed.
+    int interface_monitor_reconnect_task_id_{-1};
+    // Interface monitor fd currently registered in epoll.
+    std::optional<int> interface_monitor_fd_;
     // Periodic background warm-up of the dnsmasq-populated ipsets — see
     // ListWarmer for the cache-bypass rationale.
     int list_warmer_task_id_{-1};
