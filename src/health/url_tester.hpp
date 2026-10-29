@@ -74,4 +74,11 @@ ProbeIpFamilies probe_ip_families(bool has_ipv4, bool has_ipv6);
 // (getifaddrs); any for an empty name or when they cannot be read.
 ProbeIpFamilies probe_interface_ip_families(const std::string& interface_name);
 
+// Error text of a failed probe: libcurl's message plus the numeric code.
+// Entware's libcurl is built without verbose strings, and its message is
+// "Error" for every code; the codes a probe meets then get a name here, so
+// different failures stay different errors in the probe-failure log, which
+// ignores numbers (normalize_probe_error()).
+std::string describe_curl_error(int code, const std::string& libcurl_text);
+
 } // namespace keen_pbr3

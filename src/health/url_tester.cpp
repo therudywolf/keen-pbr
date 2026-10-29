@@ -115,6 +115,44 @@ ProbeIpFamilies probe_interface_ip_families(const std::string& interface_name) {
     return probe_ip_families(has_ipv4, has_ipv6);
 }
 
+std::string describe_curl_error(int code, const std::string& libcurl_text) {
+    std::string text = libcurl_text;
+    if (text.empty() || text == "Error") {
+        switch (code) {
+        case CURLE_COULDNT_RESOLVE_HOST:
+            text = "Could not resolve host";
+            break;
+        case CURLE_COULDNT_CONNECT:
+            text = "Could not connect";
+            break;
+        case CURLE_OPERATION_TIMEDOUT:
+            text = "Timed out";
+            break;
+        case CURLE_SSL_CONNECT_ERROR:
+            text = "TLS handshake failed";
+            break;
+        case CURLE_PEER_FAILED_VERIFICATION:
+            text = "Server certificate not accepted";
+            break;
+        case CURLE_GOT_NOTHING:
+            text = "Empty reply from server";
+            break;
+        case CURLE_SEND_ERROR:
+            text = "Failed sending data";
+            break;
+        case CURLE_RECV_ERROR:
+            text = "Failed receiving data";
+            break;
+        case CURLE_TOO_MANY_REDIRECTS:
+            text = "Too many redirects";
+            break;
+        default:
+            break;
+        }
+    }
+    return text + " (curl code " + std::to_string(code) + ")";
+}
+
 URLTester::URLTester() {}
 
 URLTester::~URLTester() = default;
@@ -194,7 +232,7 @@ URLTestResult URLTester::test_once(const std::string& url, uint32_t fwmark,
                            std::strerror(socket_options.bind_errno);
             retryable = false;
         } else {
-            result.error = curl_easy_strerror(res);
+            result.error = describe_curl_error(static_cast<int>(res), curl_easy_strerror(res));
         }
         curl_easy_cleanup(curl);
         Logger::instance().trace("url_test_once_error",

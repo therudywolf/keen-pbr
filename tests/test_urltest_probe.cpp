@@ -123,6 +123,19 @@ TEST_CASE("probe_interface_ip_families: unnamed and missing interfaces are not r
     CHECK(probe_interface_ip_families("lo") != ProbeIpFamilies::ipv6_only);
 }
 
+TEST_CASE("describe_curl_error: the curl code is always there, names stand in for missing strings") {
+    // A libcurl with verbose strings keeps its own message.
+    CHECK(describe_curl_error(CURLE_SSL_CONNECT_ERROR, "SSL connect error") ==
+          "SSL connect error (curl code 35)");
+    // Entware's libcurl says "Error" for every code.
+    CHECK(describe_curl_error(CURLE_SSL_CONNECT_ERROR, "Error") == "TLS handshake failed (curl code 35)");
+    CHECK(describe_curl_error(CURLE_OPERATION_TIMEDOUT, "Error") == "Timed out (curl code 28)");
+    CHECK(describe_curl_error(CURLE_UNSUPPORTED_PROTOCOL, "Error") == "Error (curl code 1)");
+    // Two different failures stay two errors for ProbeFailureLog.
+    CHECK(normalize_probe_error(describe_curl_error(CURLE_SSL_CONNECT_ERROR, "Error")) !=
+          normalize_probe_error(describe_curl_error(CURLE_OPERATION_TIMEDOUT, "Error")));
+}
+
 TEST_CASE("URLTester: a probe bound to a missing interface fails on the bind, without retries") {
     CurlGlobalGuard curl_guard;
     URLTester tester;
@@ -152,4 +165,5 @@ TEST_CASE("URLTester: binding to an existing interface reaches the connect step"
     const auto result = tester.test("http://127.0.0.1:9/generate_204", 0, 1000, retry, "lo");
     CHECK_FALSE(result.success);
     CHECK(result.error.find("cannot bind probe") == std::string::npos);
+    CHECK(result.error.find("(curl code 7)") != std::string::npos); // CURLE_COULDNT_CONNECT
 }
