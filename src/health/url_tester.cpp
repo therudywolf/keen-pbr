@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <cstring>
 #include <curl/curl.h>
+#include <ifaddrs.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <thread>
@@ -76,6 +78,43 @@ std::optional<std::string> probe_interface_unavailable(const std::string& interf
     return std::nullopt;
 }
 
+ProbeIpFamilies probe_ip_families(bool has_ipv4, bool has_ipv6) {
+    if (has_ipv4 && !has_ipv6) {
+        return ProbeIpFamilies::ipv4_only;
+    }
+    if (has_ipv6 && !has_ipv4) {
+        return ProbeIpFamilies::ipv6_only;
+    }
+    return ProbeIpFamilies::any;
+}
+
+ProbeIpFamilies probe_interface_ip_families(const std::string& interface_name) {
+    if (interface_name.empty()) {
+        return ProbeIpFamilies::any;
+    }
+    struct ifaddrs* addresses = nullptr;
+    if (getifaddrs(&addresses) != 0) {
+        return ProbeIpFamilies::any; // cannot tell; let curl try both
+    }
+    bool has_ipv4 = false;
+    bool has_ipv6 = false;
+    for (const struct ifaddrs* entry = addresses; entry != nullptr; entry = entry->ifa_next) {
+        if (entry->ifa_addr == nullptr || interface_name != entry->ifa_name) {
+            continue;
+        }
+        if (entry->ifa_addr->sa_family == AF_INET) {
+            has_ipv4 = true;
+        } else if (entry->ifa_addr->sa_family == AF_INET6) {
+            const auto* address = reinterpret_cast<const struct sockaddr_in6*>(entry->ifa_addr);
+            if (!IN6_IS_ADDR_LINKLOCAL(&address->sin6_addr)) {
+                has_ipv6 = true;
+            }
+        }
+    }
+    freeifaddrs(addresses);
+    return probe_ip_families(has_ipv4, has_ipv6);
+}
+
 URLTester::URLTester() {}
 
 URLTester::~URLTester() = default;
@@ -131,6 +170,18 @@ URLTestResult URLTester::test_once(const std::string& url, uint32_t fwmark,
     socket_options.bind_interface = bind_interface;
     curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_callback);
     curl_easy_setopt(curl, CURLOPT_SOCKOPTDATA, &socket_options);
+    // Only the address families the member's interface has an address of;
+    // see probe_ip_families().
+    switch (probe_interface_ip_families(bind_interface)) {
+    case ProbeIpFamilies::ipv4_only:
+        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, static_cast<long>(CURL_IPRESOLVE_V4));
+        break;
+    case ProbeIpFamilies::ipv6_only:
+        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, static_cast<long>(CURL_IPRESOLVE_V6));
+        break;
+    case ProbeIpFamilies::any:
+        break;
+    }
 
     auto start = std::chrono::steady_clock::now();
     CURLcode res = curl_easy_perform(curl);

@@ -107,6 +107,22 @@ TEST_CASE("probe_interface_unavailable: missing interface fails, a live one pass
     CHECK(*missing == "interface kpbrnoif0 does not exist");
 }
 
+TEST_CASE("probe_ip_families: a bound probe tries only the families its interface has") {
+    // sbtun0 (sing-box) and nwg3 (AWG) have IPv4 and at most a link-local
+    // IPv6 address.
+    CHECK(probe_ip_families(true, false) == ProbeIpFamilies::ipv4_only);
+    CHECK(probe_ip_families(false, true) == ProbeIpFamilies::ipv6_only);
+    CHECK(probe_ip_families(true, true) == ProbeIpFamilies::any);
+    CHECK(probe_ip_families(false, false) == ProbeIpFamilies::any);
+}
+
+TEST_CASE("probe_interface_ip_families: unnamed and missing interfaces are not restricted") {
+    CHECK(probe_interface_ip_families("") == ProbeIpFamilies::any);
+    CHECK(probe_interface_ip_families("kpbrnoif0") == ProbeIpFamilies::any);
+    // lo always has 127.0.0.1; ::1 exists only where IPv6 is enabled.
+    CHECK(probe_interface_ip_families("lo") != ProbeIpFamilies::ipv6_only);
+}
+
 TEST_CASE("URLTester: a probe bound to a missing interface fails on the bind, without retries") {
     CurlGlobalGuard curl_guard;
     URLTester tester;
