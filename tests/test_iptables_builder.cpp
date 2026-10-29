@@ -471,6 +471,59 @@ TEST_CASE("build_ipt_script: skip_marked_packets prefilter can be disabled") {
   CHECK(s.find("-m mark ! --mark 0x0/0xffffffff -j ACCEPT") == std::string::npos);
 }
 
+TEST_CASE("build_ipt_script: offload guard puts -j PPE between MARK and RETURN") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(false, {mark_rule("myset", false, 0x100)}, prefilter);
+  const std::string rules =
+      "[0:0] -A KeenPbrTable -m set --match-set myset dst -j MARK --set-xmark 0x100/0xffffffff\n"
+      "-A KeenPbrTable -m set --match-set myset dst -j PPE\n"
+      "-A KeenPbrTable -m set --match-set myset dst -j RETURN\n";
+  CHECK(s.find(rules) != std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: offload guard follows each interface's MARK rule") {
+  auto prefilter = prefilter_with_interfaces({"br0", "nwg1"});
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(false, {mark_rule("kpbrm_0", false, 0x70000)}, prefilter);
+  for (const std::string iface : {"br0", "nwg1"}) {
+    const std::string match = "-A KeenPbrTable -m set --match-set kpbrm_0 dst -i " + iface;
+    const std::string rules = "[0:0] " + match + " -j MARK --set-xmark 0x70000/0xffffffff\n" +
+                              match + " -j PPE\n" + match + " -j RETURN\n";
+    CHECK_MESSAGE(s.find(rules) != std::string::npos, iface);
+  }
+}
+
+TEST_CASE("build_ipt_script: offload guard also follows address-only MARK rules") {
+  FirewallRuleCriteria criteria;
+  criteria.dst_addr = {"203.0.113.0/24"};
+  criteria.proto = L4Proto::Tcp;
+  criteria.dst_port = PortSpec("443");
+  FirewallGlobalPrefilter prefilter;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x100, criteria,
+                                        false, 0xFFFFFFFFu, prefilter);
+  CHECK(s.find("-A KeenPbrTable -d 203.0.113.0/24 -p tcp --dport 443 -j PPE\n") !=
+        std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: offload guard does not touch DROP and RETURN rules") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(
+      false, {drop_rule("blocked", false), pass_rule("allowlist", false)}, prefilter);
+  CHECK(s.find("-j PPE") == std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: no -j PPE without the offload guard") {
+  auto s = T::build_ipt_script(false, {mark_rule("myset", false, 0x100)});
+  CHECK(s.find("-j PPE") == std::string::npos);
+}
+
 TEST_CASE("build_ipt_script: multi-interface prefilter expands route rules with -i matches") {
   auto s = T::build_ipt_script(
       false,

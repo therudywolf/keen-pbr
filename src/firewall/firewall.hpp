@@ -65,6 +65,11 @@ struct FirewallGlobalPrefilter {
     std::optional<std::vector<std::string>> inbound_interfaces;
     bool skip_established_or_dnat{false};
     bool skip_marked_packets{false};
+    // Follow every MARK rule with -j PPE, Keenetic's "disable flow
+    // offloading" target, so fastnat and HW NAT keep the marked flows on the
+    // slow path. Set by the iptables backend when the kernel has the target.
+    // It adds no prefilter line, so empty() ignores it.
+    bool offload_guard{false};
 
     bool has_inbound_interfaces() const {
         return inbound_interfaces.has_value() && !inbound_interfaces->empty();
