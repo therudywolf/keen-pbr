@@ -471,6 +471,112 @@ TEST_CASE("build_ipt_script: skip_marked_packets prefilter can be disabled") {
   CHECK(s.find("-m mark ! --mark 0x0/0xffffffff -j ACCEPT") == std::string::npos);
 }
 
+TEST_CASE("build_ipt_script: offload guard puts -j PPE between MARK and RETURN") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(false, {mark_rule("myset", false, 0x100)}, prefilter);
+  const std::string rules =
+      "[0:0] -A KeenPbrTable -m set --match-set myset dst -j MARK --set-xmark 0x100/0xffffffff\n"
+      "-A KeenPbrTable -m set --match-set myset dst -j PPE\n"
+      "-A KeenPbrTable -m set --match-set myset dst -j RETURN\n";
+  CHECK(s.find(rules) != std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: offload guard follows each interface's MARK rule") {
+  auto prefilter = prefilter_with_interfaces({"br0", "nwg1"});
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(false, {mark_rule("kpbrm_0", false, 0x70000)}, prefilter);
+  for (const std::string iface : {"br0", "nwg1"}) {
+    const std::string rules =
+        "[0:0] -A KeenPbrTable -m set --match-set kpbrm_0 dst -i " + iface +
+        " -j MARK --set-xmark 0x70000/0xffffffff\n"
+        "-A KeenPbrTable -m mark --mark 0x70000/0xffffffff -j PPE\n"
+        "-A KeenPbrTable -m mark --mark 0x70000/0xffffffff -j RETURN\n";
+    CHECK_MESSAGE(s.find(rules) != std::string::npos, iface);
+  }
+}
+
+TEST_CASE("build_ipt_script: with skip_marked_packets the RETURN companion tests the mark") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+
+  auto s = T::build_ipt_script(false, {mark_rule("myset", false, 0x100)}, prefilter);
+  const std::string rules =
+      "[0:0] -A KeenPbrTable -m set --match-set myset dst -j MARK --set-xmark 0x100/0xffffffff\n"
+      "-A KeenPbrTable -m mark --mark 0x100/0xffffffff -j RETURN\n";
+  CHECK(s.find(rules) != std::string::npos);
+  CHECK(s.find("--match-set myset dst -j RETURN") == std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: the mark test uses the masked fwmark") {
+  FirewallRuleCriteria criteria;
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00010000, criteria,
+                                        true, 0x00FF0000, prefilter);
+  CHECK(s.find("[0:0] -A KeenPbrTable -m set --match-set pairwise_set dst -j MARK --set-xmark 0x10000/0xff0000\n"
+               "-A KeenPbrTable -m mark --mark 0x10000/0xff0000 -j RETURN\n") !=
+        std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: a zero fwmark keeps the full match in its companions") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(false, {mark_rule("zeroset", false, 0)}, prefilter);
+  CHECK(s.find("-A KeenPbrTable -m set --match-set zeroset dst -j PPE\n") != std::string::npos);
+  CHECK(s.find("-A KeenPbrTable -m set --match-set zeroset dst -j RETURN\n") != std::string::npos);
+  CHECK(s.find("-m mark --mark 0x0/") == std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: a later rule still runs after an unmatched mark test") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+
+  auto s = T::build_ipt_script(
+      false, {mark_rule("first", false, 0x10000), mark_rule("second", false, 0x20000)}, prefilter);
+  const auto first_return = s.find("-A KeenPbrTable -m mark --mark 0x10000/0xffffffff -j RETURN\n");
+  const auto second_mark = s.find("--match-set second dst -j MARK --set-xmark 0x20000/0xffffffff\n");
+  const auto second_return = s.find("-A KeenPbrTable -m mark --mark 0x20000/0xffffffff -j RETURN\n");
+  REQUIRE(first_return != std::string::npos);
+  REQUIRE(second_mark != std::string::npos);
+  REQUIRE(second_return != std::string::npos);
+  CHECK(first_return < second_mark);
+  CHECK(second_mark < second_return);
+}
+
+TEST_CASE("build_ipt_script: offload guard also follows address-only MARK rules") {
+  FirewallRuleCriteria criteria;
+  criteria.dst_addr = {"203.0.113.0/24"};
+  criteria.proto = L4Proto::Tcp;
+  criteria.dst_port = PortSpec("443");
+  FirewallGlobalPrefilter prefilter;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x100, criteria,
+                                        false, 0xFFFFFFFFu, prefilter);
+  CHECK(s.find("-A KeenPbrTable -d 203.0.113.0/24 -p tcp --dport 443 -j PPE\n") !=
+        std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: offload guard does not touch DROP and RETURN rules") {
+  FirewallGlobalPrefilter prefilter;
+  prefilter.offload_guard = true;
+
+  auto s = T::build_ipt_script(
+      false, {drop_rule("blocked", false), pass_rule("allowlist", false)}, prefilter);
+  CHECK(s.find("-j PPE") == std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: no -j PPE without the offload guard") {
+  auto s = T::build_ipt_script(false, {mark_rule("myset", false, 0x100)});
+  CHECK(s.find("-j PPE") == std::string::npos);
+}
+
 TEST_CASE("build_ipt_script: multi-interface prefilter expands route rules with -i matches") {
   auto s = T::build_ipt_script(
       false,

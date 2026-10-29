@@ -249,6 +249,30 @@ disable_hwnat() {
     sysctl -w net.netfilter.nf_conntrack_fastnat=0 2>/dev/null || true
 }
 
+# The network accelerator (fastnat, with SWNAT and HW NAT behind it) skips
+# mangle for the flows it has bound, so it must not take the flows forest-pbr
+# routes. With the kernel's PPE target the daemon follows each MARK rule with
+# -j PPE, which keeps those flows off it, and the accelerator may stay on for
+# the rest if the user created /opt/etc/forest-pbr/fastnat.enabled. The
+# netfilter hook makes the same check on every netfilter event.
+fastnat_allowed() {
+    [ -f /opt/etc/forest-pbr/fastnat.enabled ] &&
+        grep -qx PPE /proc/net/ip_tables_targets 2>/dev/null
+}
+
+apply_fastnat_policy() {
+    if ! fastnat_allowed; then
+        disable_hwnat
+        return 0
+    fi
+    log "fastnat.enabled: the network accelerator stays on; flows forest-pbr routes are kept off it with -j PPE"
+    # An earlier start may have switched fastnat off. NDM keeps it on while
+    # its software accelerator ("ppe software", net.core.swnat) is on.
+    if [ "$(sysctl -n net.core.swnat 2>/dev/null)" = 1 ]; then
+        enable_hwnat
+    fi
+}
+
 signal_service() {
     local signal="$1"
     local pid
@@ -297,7 +321,7 @@ prepare_start() {
     ensure_log_dir
     wait_for_keenetic_rci
     check_runtime_dependencies
-    disable_hwnat
+    apply_fastnat_policy
 }
 
 prepare_stop() {

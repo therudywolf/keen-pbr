@@ -149,6 +149,9 @@ private:
         const PendingRule& pr,
         const FirewallGlobalPrefilter& prefilter);
     bool ipv6_backend_available() const;
+    // The configured prefilter, with offload_guard set when the family's
+    // kernel table has the Keenetic PPE target.
+    FirewallGlobalPrefilter prefilter_for(bool ipv6) const;
     // Expand filter (proto, src_addr, dst_addr) into cross-product of PendingRules
     // and append them to out.  tcp/udp is split into two entries.  Multiple CIDRs
     // in src_addr / dst_addr each become separate rules (OR semantics when combined),
@@ -187,6 +190,11 @@ private:
     // Track whether chain + jump rule exist for each protocol
     bool chain_v4_created_ = false;
     bool chain_v6_created_ = false;
+
+    // Whether iptables / ip6tables has the Keenetic PPE target, read once
+    // from /proc/net/ip{,6}_tables_targets at construction.
+    bool ppe_target_v4_ = false;
+    bool ppe_target_v6_ = false;
 
 #ifdef KEEN_PBR3_TESTING
     friend class IptablesBuilderTest;

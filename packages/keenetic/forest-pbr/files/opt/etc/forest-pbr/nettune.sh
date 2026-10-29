@@ -3,7 +3,9 @@
 # steering (RFS), enlarge backlog/XPS. Pure perf knobs — does NOT touch routing,
 # firewall, marks or fastnat. Idempotent; safe to run repeatedly.
 RPS_MASK=e            # CPU1,2,3 — leave CPU0 for the NIC hardware IRQ (IRQ18)
-IFACES="ppp0 nwg1 nwg2 br0 eth2.1 eth2 eth3"
+# Every WireGuard interface NDM created (nwg0, nwg1, ...): the tunnel in use
+# changes number when one is replaced, as nwg2 was by nwg3.
+IFACES="ppp0 br0 eth2.1 eth2 eth3 $(cd /sys/class/net 2>/dev/null && echo nwg*)"
 echo 32768 > /proc/sys/net/core/rps_sock_flow_entries 2>/dev/null
 echo 4000  > /proc/sys/net/core/netdev_max_backlog     2>/dev/null
 for i in $IFACES; do

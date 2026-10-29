@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <fstream>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -50,9 +51,42 @@ std::vector<L4Proto> expand_l4_protos_for_iptables(const FirewallRuleCriteria& c
     return expand_l4_protos(criteria.proto);
 }
 
+// Keenetic kernels have a mangle target, PPE, that takes a connection off both
+// network accelerators: it sets ct->fast_ext, so fastnat never binds the flow,
+// and FOE_ALG_SKIP, so HW NAT does not learn it from the packet
+// (net/netfilter/xt_PPE.c in keenetic/kernel-49). A flow fastnat has bound
+// skips mangle, and only ct->mark is copied into its packets before the route
+// lookup (nf_conntrack_core.c), so a flow marked per packet by KeenPbrTable
+// would leave through the main table once bound. That is why the init script
+// used to keep fastnat off for all traffic.
+bool kernel_has_ppe_target(bool ipv6) {
+    std::ifstream targets(ipv6 ? "/proc/net/ip6_tables_targets"
+                               : "/proc/net/ip_tables_targets");
+    std::string line;
+    while (std::getline(targets, line)) {
+        if (line == "PPE") {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
-IptablesFirewall::IptablesFirewall() = default;
+IptablesFirewall::IptablesFirewall()
+    : ppe_target_v4_(kernel_has_ppe_target(false)),
+      ppe_target_v6_(kernel_has_ppe_target(true)) {
+    if (ppe_target_v4_ || ppe_target_v6_) {
+        Logger::instance().info(
+            "iptables: PPE target found, marked flows are kept off fastnat and HW NAT");
+    }
+}
+
+FirewallGlobalPrefilter IptablesFirewall::prefilter_for(bool ipv6) const {
+    FirewallGlobalPrefilter prefilter = global_prefilter_;
+    prefilter.offload_guard = ipv6 ? ppe_target_v6_ : ppe_target_v4_;
+    return prefilter;
+}
 
 IptablesFirewall::~IptablesFirewall() {
     try {
@@ -420,6 +454,30 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
     addr_frag += addr_match("-d", "dst", pr.criteria.dst_addr, pr.criteria.negate_dst_addr);
     std::vector<std::string> lines;
     lines.reserve(iface_frags.size() * 2);
+
+    // With skip_marked_packets every packet reaches the route rules unmarked,
+    // so right after a MARK rule the mark alone tells whether the packet
+    // matched it: the PPE and RETURN companions test the mark instead of
+    // matching the set (or criteria) again. A list:set match walks every
+    // member set, which is most of the per-packet cost on a MIPS router.
+    // A zero fwmark cannot be told from an unmarked packet, so it keeps the
+    // full match.
+    const uint32_t marked_value = pr.fwmark & pr.fwmark_mask;
+    const bool test_mark = prefilter.skip_marked_packets && marked_value != 0;
+    const auto push_mark_rule = [&](const std::string& match) {
+        lines.push_back(keen_pbr3::format("[0:0] -A {}{} -j MARK --set-xmark {:#x}/{:#x}\n",
+                                          CHAIN_NAME,
+                                          match,
+                                          pr.fwmark,
+                                          pr.fwmark_mask));
+        const std::string companion = test_mark
+            ? keen_pbr3::format(" -m mark --mark {:#x}/{:#x}", marked_value, pr.fwmark_mask)
+            : match;
+        if (prefilter.offload_guard) {
+            lines.push_back(keen_pbr3::format("-A {}{} -j PPE\n", CHAIN_NAME, companion));
+        }
+        lines.push_back(keen_pbr3::format("-A {}{} -j RETURN\n", CHAIN_NAME, companion));
+    };
     for (const auto proto : expand_l4_protos_for_iptables(pr.criteria)) {
         std::string pp = build_proto_port_fragment(proto,
                                                    pr.criteria.src_port,
@@ -430,23 +488,7 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
         for (const auto& iface_frag : iface_frags) {
             if (!pr.criteria.dst_set_name.has_value()) {
                 if (pr.action == PendingRule::Mark) {
-                    const std::string mark_target = keen_pbr3::format(
-                        "-j MARK --set-xmark {:#x}/{:#x}",
-                        pr.fwmark,
-                        pr.fwmark_mask);
-                    lines.push_back(keen_pbr3::format(
-                        "[0:0] -A {}{}{}{} {}\n",
-                        CHAIN_NAME,
-                        iface_frag,
-                        addr_frag,
-                        pp,
-                        mark_target));
-                    lines.push_back(keen_pbr3::format(
-                        "-A {}{}{}{} -j RETURN\n",
-                        CHAIN_NAME,
-                        iface_frag,
-                        addr_frag,
-                        pp));
+                    push_mark_rule(iface_frag + addr_frag + pp);
                 } else if (pr.action == PendingRule::Drop) {
                     lines.push_back(keen_pbr3::format(
                         "-A {}{}{}{} -j DROP\n",
@@ -464,25 +506,11 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
                 }
             } else {
                 if (pr.action == PendingRule::Mark) {
-                    const std::string mark_target = keen_pbr3::format(
-                        "-j MARK --set-xmark {:#x}/{:#x}",
-                        pr.fwmark,
-                        pr.fwmark_mask);
-                    lines.push_back(keen_pbr3::format(
-                        "[0:0] -A {} -m set --match-set {} dst{}{}{} {}\n",
-                        CHAIN_NAME,
-                        *pr.criteria.dst_set_name,
-                        iface_frag,
-                        addr_frag,
-                        pp,
-                        mark_target));
-                    lines.push_back(keen_pbr3::format(
-                        "-A {} -m set --match-set {} dst{}{}{} -j RETURN\n",
-                        CHAIN_NAME,
-                        *pr.criteria.dst_set_name,
-                        iface_frag,
-                        addr_frag,
-                        pp));
+                    push_mark_rule(keen_pbr3::format(" -m set --match-set {} dst{}{}{}",
+                                                     *pr.criteria.dst_set_name,
+                                                     iface_frag,
+                                                     addr_frag,
+                                                     pp));
                 } else if (pr.action == PendingRule::Drop) {
                     lines.push_back(keen_pbr3::format(
                         "-A {} -m set --match-set {} dst{}{}{} -j DROP\n",
@@ -645,11 +673,11 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
     // support is disabled (or unavailable), skip the v6 restore so we do not
     // assert chains in an unused table.
     pipe_to_cmd({"iptables-restore", "--noflush", "--counters"},
-                build_ipt_script(false, pending_rules_, global_prefilter_));
+                build_ipt_script(false, pending_rules_, prefilter_for(false)));
     chain_v4_created_ = true;
     if (effective_ipv6) {
         pipe_to_cmd({"ip6tables-restore", "--noflush", "--counters"},
-                    build_ipt_script(true, pending_rules_, global_prefilter_));
+                    build_ipt_script(true, pending_rules_, prefilter_for(true)));
         chain_v6_created_ = true;
     }
 }
@@ -813,7 +841,7 @@ void IptablesFirewall::apply_rules_only(bool effective_ipv6,
             safe_exec({iptables, "-t", "mangle", "-C", "PREROUTING", "-j", CHAIN_NAME},
                       /*suppress_output=*/true) == 0;
         pipe_to_cmd({iptables + "-restore", "--noflush", "--counters"},
-                    build_ipt_script(ipv6, pending_rules_, global_prefilter_, !jump_present));
+                    build_ipt_script(ipv6, pending_rules_, prefilter_for(ipv6), !jump_present));
     };
     restore_family(false);
     chain_v4_created_ = true;
