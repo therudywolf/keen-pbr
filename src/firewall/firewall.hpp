@@ -71,9 +71,8 @@ struct FirewallGlobalPrefilter {
     // It adds no prefilter line, so empty() ignores it.
     bool offload_guard{false};
     // Keep each flow's verdict in its conntrack mark, so that only the first
-    // packets of a connection walk the list sets: an established listed flow
-    // gets its fwmark back from the conntrack mark, an unlisted one returns
-    // early. Set by the iptables backend when the kernel has CONNMARK,
+    // packets of a listed connection walk the list sets: an established
+    // listed flow gets its fwmark back from the conntrack mark. Set by the iptables backend when the kernel has CONNMARK,
     // connmark and conntrack. flow_epoch changes whenever the rules do, so a
     // verdict from an older rule set is never reused. No prefilter line.
     bool flow_cache{false};

@@ -146,12 +146,14 @@ private:
                                                  bool negate_dst_port = false);
     // Build one or more iptables-restore lines for a queued rule.
     // How flow_cache encodes verdicts in the conntrack mark for one script:
-    // the fwmark byte holds a rule index (1..14, or 15 for "no rule
-    // matched") in its low nibble and the epoch in the next three bits.
+    // the fwmark byte holds the rule's index (1..14) in its low nibble and
+    // the epoch in the next three bits. Only listed verdicts are kept: an
+    // unmatched flow is looked up again on every packet, so a destination
+    // that joins a list later (list warmer, DoH-resolved address) moves the
+    // flow into the tunnel instead of leaving it on the direct path.
     // Built by flow_cache_plan(); empty when the rules do not fit.
     struct FlowCachePlan {
         uint32_t mask = 0;                       // the rules' fwmark mask
-        uint32_t unmatched = 0;                  // conntrack value: no rule matched
         std::map<uint32_t, uint32_t> conn_value; // fwmark value -> conntrack value
     };
     static std::optional<FlowCachePlan> flow_cache_plan(

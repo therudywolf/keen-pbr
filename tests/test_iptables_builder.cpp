@@ -532,13 +532,13 @@ TEST_CASE("build_ipt_script: the flow cache restores a listed flow's mark from c
 
   auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
                                         true, 0x00FF0000, prefilter);
-  // Epoch 2, index 6 -> 0x260000; "no rule matched" is index 15 -> 0x2f0000.
+  // Epoch 2, index 6 -> 0x260000.
   const std::string head =
       "-A KeenPbrTable -m mark ! --mark 0x0/0xffffffff -j ACCEPT\n"
       "-A KeenPbrTable -m conntrack --ctdir ORIGINAL -m connmark --mark 0x260000/0xff0000"
       " -j MARK --set-xmark 0x60000/0xff0000\n"
       "-A KeenPbrTable -m mark ! --mark 0x0/0xffffffff -j ACCEPT\n"
-      "-A KeenPbrTable -m conntrack --ctdir ORIGINAL -m connmark --mark 0x2f0000/0xff0000 -j RETURN\n";
+      "[0:0] -A KeenPbrTable -m set --match-set pairwise_set dst";
   CHECK(s.find(head) != std::string::npos);
   const std::string rule =
       "[0:0] -A KeenPbrTable -m set --match-set pairwise_set dst -j MARK --set-xmark 0x60000/0xff0000\n"
@@ -546,8 +546,7 @@ TEST_CASE("build_ipt_script: the flow cache restores a listed flow's mark from c
       "-A KeenPbrTable -m mark --mark 0x60000/0xff0000 -j CONNMARK --set-xmark 0x260000/0xff0000\n"
       "-A KeenPbrTable -m mark --mark 0x60000/0xff0000 -j RETURN\n";
   CHECK(s.find(rule) != std::string::npos);
-  CHECK(s.find("-A KeenPbrTable -m conntrack --ctdir ORIGINAL -j CONNMARK --set-xmark 0x2f0000/0xff0000\n"
-               "COMMIT\n") != std::string::npos);
+  CHECK(s.find(rule + "COMMIT\n") != std::string::npos);
 }
 
 TEST_CASE("build_ipt_script: the flow cache never restores a mark onto replies") {
@@ -567,21 +566,26 @@ TEST_CASE("build_ipt_script: the flow cache never restores a mark onto replies")
       CHECK_MESSAGE(line.find("--ctdir ORIGINAL") != std::string::npos, line);
     }
   }
-  CHECK(connmark_lines == 3);
+  CHECK(connmark_lines == 1);
 }
 
-TEST_CASE("build_ipt_script: the flow cache remembers unmatched flows per inbound interface") {
+TEST_CASE("build_ipt_script: the flow cache keeps no verdict for unmatched flows") {
   auto prefilter = prefilter_with_interfaces({"br0", "nwg1"});
   prefilter.flow_cache = true;
   FirewallRuleCriteria criteria;
 
+  // A destination may join a list later; its flow must then be looked up
+  // again and move into the tunnel.
   auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
                                         true, 0x00FF0000, prefilter);
-  for (const std::string iface : {"br0", "nwg1"}) {
-    CHECK_MESSAGE(s.find("-A KeenPbrTable -i " + iface +
-                         " -m conntrack --ctdir ORIGINAL -j CONNMARK --set-xmark 0xf0000/0xff0000\n") !=
-                      std::string::npos,
-                  iface);
+  CHECK(s.find("--set-xmark 0xf0000/") == std::string::npos);
+  CHECK(s.find("-m connmark --mark 0xf0000/") == std::string::npos);
+  std::istringstream lines(s);
+  std::string line;
+  while (std::getline(lines, line)) {
+    if (line.find("CONNMARK") != std::string::npos) {
+      CHECK_MESSAGE(line.find("-m mark --mark 0x60000/0xff0000") != std::string::npos, line);
+    }
   }
 }
 
@@ -596,7 +600,7 @@ TEST_CASE("build_ipt_script: the flow cache stays off when it cannot encode the 
   CHECK(full.find("connmark") == std::string::npos);
   CHECK(full.find("CONNMARK") == std::string::npos);
 
-  // Index 15 is the "no rule matched" verdict.
+  // Index 15 is kept free.
   auto high = T::build_ipt_script_for_rule(false, Rule::Mark, 0x000F0000, criteria,
                                            true, 0x00FF0000, prefilter);
   CHECK(high.find("CONNMARK") == std::string::npos);

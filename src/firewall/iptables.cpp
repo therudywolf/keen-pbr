@@ -630,29 +630,11 @@ std::string IptablesFirewall::build_ipt_script(bool ipv6,
                 CHAIN_NAME, conn_value, flow->mask, value, flow->mask);
         }
         s += keen_pbr3::format("-A {} -m mark ! --mark 0x0/0xffffffff -j ACCEPT\n", CHAIN_NAME);
-        s += keen_pbr3::format(
-            "-A {} -m conntrack --ctdir ORIGINAL -m connmark --mark {:#x}/{:#x} -j RETURN\n",
-            CHAIN_NAME, flow->unmatched, flow->mask);
     }
     for (const auto& pr : consolidated) {
         if (pr.ipv6 != ipv6) continue;
         for (const auto& line : build_rule_lines(pr, prefilter, flow ? &*flow : nullptr)) {
             s += line;
-        }
-    }
-    if (flow.has_value()) {
-        // A packet that got here matched no rule: remember that for its flow.
-        std::vector<std::string> iface_frags{""};
-        if (prefilter.has_inbound_interfaces() && prefilter.inbound_interfaces->size() > 1) {
-            iface_frags.clear();
-            for (const auto& iface : *prefilter.inbound_interfaces) {
-                iface_frags.push_back(" -i " + iface);
-            }
-        }
-        for (const auto& iface_frag : iface_frags) {
-            s += keen_pbr3::format(
-                "-A {}{} -m conntrack --ctdir ORIGINAL -j CONNMARK --set-xmark {:#x}/{:#x}\n",
-                CHAIN_NAME, iface_frag, flow->unmatched, flow->mask);
         }
     }
     s += "COMMIT\n";
@@ -691,7 +673,7 @@ std::optional<IptablesFirewall::FlowCachePlan> IptablesFirewall::flow_cache_plan
         }
         const uint32_t value = pr.fwmark & mask;
         const uint32_t index = value >> shift;
-        if (index == 0 || index > 14) {
+        if (index == 0 || index > 14) {  // 15 stays free
             return std::nullopt;
         }
         plan.conn_value[value] = ((prefilter.flow_epoch << 4) | index) << shift;
@@ -699,7 +681,6 @@ std::optional<IptablesFirewall::FlowCachePlan> IptablesFirewall::flow_cache_plan
     if (plan.conn_value.empty()) {
         return std::nullopt;
     }
-    plan.unmatched = ((prefilter.flow_epoch << 4) | 15u) << shift;
     return plan;
 }
 
