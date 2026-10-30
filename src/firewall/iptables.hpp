@@ -145,13 +145,28 @@ private:
                                                  bool negate_src_port = false,
                                                  bool negate_dst_port = false);
     // Build one or more iptables-restore lines for a queued rule.
+    // How flow_cache encodes verdicts in the conntrack mark for one script:
+    // the fwmark byte holds a rule index (1..14, or 15 for "no rule
+    // matched") in its low nibble and the epoch in the next three bits.
+    // Built by flow_cache_plan(); empty when the rules do not fit.
+    struct FlowCachePlan {
+        uint32_t mask = 0;                       // the rules' fwmark mask
+        uint32_t unmatched = 0;                  // conntrack value: no rule matched
+        std::map<uint32_t, uint32_t> conn_value; // fwmark value -> conntrack value
+    };
+    static std::optional<FlowCachePlan> flow_cache_plan(
+        const std::vector<PendingRule>& rules,
+        bool ipv6,
+        const FirewallGlobalPrefilter& prefilter);
     static std::vector<std::string> build_rule_lines(
         const PendingRule& pr,
-        const FirewallGlobalPrefilter& prefilter);
+        const FirewallGlobalPrefilter& prefilter,
+        const FlowCachePlan* flow = nullptr);
     bool ipv6_backend_available() const;
     // The configured prefilter, with offload_guard set when the family's
     // kernel table has the Keenetic PPE target.
-    FirewallGlobalPrefilter prefilter_for(bool ipv6) const;
+    FirewallGlobalPrefilter prefilter_for(bool ipv6,
+                                          const std::vector<PendingRule>& rules) const;
     // Expand filter (proto, src_addr, dst_addr) into cross-product of PendingRules
     // and append them to out.  tcp/udp is split into two entries.  Multiple CIDRs
     // in src_addr / dst_addr each become separate rules (OR semantics when combined),
@@ -195,6 +210,8 @@ private:
     // from /proc/net/ip{,6}_tables_targets at construction.
     bool ppe_target_v4_ = false;
     bool ppe_target_v6_ = false;
+    bool flow_cache_v4_ = false;
+    bool flow_cache_v6_ = false;
 
 #ifdef KEEN_PBR3_TESTING
     friend class IptablesBuilderTest;

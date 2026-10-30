@@ -522,6 +522,103 @@ TEST_CASE("build_ipt_script: the mark test uses the masked fwmark") {
         std::string::npos);
 }
 
+TEST_CASE("build_ipt_script: the flow cache restores a listed flow's mark from conntrack") {
+  FirewallRuleCriteria criteria;
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+  prefilter.offload_guard = true;
+  prefilter.flow_cache = true;
+  prefilter.flow_epoch = 2;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
+                                        true, 0x00FF0000, prefilter);
+  // Epoch 2, index 6 -> 0x260000; "no rule matched" is index 15 -> 0x2f0000.
+  const std::string head =
+      "-A KeenPbrTable -m mark ! --mark 0x0/0xffffffff -j ACCEPT\n"
+      "-A KeenPbrTable -m conntrack --ctdir ORIGINAL -m connmark --mark 0x260000/0xff0000"
+      " -j MARK --set-xmark 0x60000/0xff0000\n"
+      "-A KeenPbrTable -m mark ! --mark 0x0/0xffffffff -j ACCEPT\n"
+      "-A KeenPbrTable -m conntrack --ctdir ORIGINAL -m connmark --mark 0x2f0000/0xff0000 -j RETURN\n";
+  CHECK(s.find(head) != std::string::npos);
+  const std::string rule =
+      "[0:0] -A KeenPbrTable -m set --match-set pairwise_set dst -j MARK --set-xmark 0x60000/0xff0000\n"
+      "-A KeenPbrTable -m mark --mark 0x60000/0xff0000 -j PPE\n"
+      "-A KeenPbrTable -m mark --mark 0x60000/0xff0000 -j CONNMARK --set-xmark 0x260000/0xff0000\n"
+      "-A KeenPbrTable -m mark --mark 0x60000/0xff0000 -j RETURN\n";
+  CHECK(s.find(rule) != std::string::npos);
+  CHECK(s.find("-A KeenPbrTable -m conntrack --ctdir ORIGINAL -j CONNMARK --set-xmark 0x2f0000/0xff0000\n"
+               "COMMIT\n") != std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: the flow cache never restores a mark onto replies") {
+  FirewallRuleCriteria criteria;
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+  prefilter.flow_cache = true;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
+                                        true, 0x00FF0000, prefilter);
+  std::istringstream lines(s);
+  std::string line;
+  int connmark_lines = 0;
+  while (std::getline(lines, line)) {
+    if (line.find("connmark") != std::string::npos || line.find("ctdir") != std::string::npos) {
+      ++connmark_lines;
+      CHECK_MESSAGE(line.find("--ctdir ORIGINAL") != std::string::npos, line);
+    }
+  }
+  CHECK(connmark_lines == 3);
+}
+
+TEST_CASE("build_ipt_script: the flow cache remembers unmatched flows per inbound interface") {
+  auto prefilter = prefilter_with_interfaces({"br0", "nwg1"});
+  prefilter.flow_cache = true;
+  FirewallRuleCriteria criteria;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
+                                        true, 0x00FF0000, prefilter);
+  for (const std::string iface : {"br0", "nwg1"}) {
+    CHECK_MESSAGE(s.find("-A KeenPbrTable -i " + iface +
+                         " -m conntrack --ctdir ORIGINAL -j CONNMARK --set-xmark 0xf0000/0xff0000\n") !=
+                      std::string::npos,
+                  iface);
+  }
+}
+
+TEST_CASE("build_ipt_script: the flow cache stays off when it cannot encode the marks") {
+  FirewallRuleCriteria criteria;
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+  prefilter.flow_cache = true;
+
+  // A full 32-bit mask leaves no room for the index and the epoch.
+  auto full = T::build_ipt_script(false, {mark_rule("myset", false, 0x70000)}, prefilter);
+  CHECK(full.find("connmark") == std::string::npos);
+  CHECK(full.find("CONNMARK") == std::string::npos);
+
+  // Index 15 is the "no rule matched" verdict.
+  auto high = T::build_ipt_script_for_rule(false, Rule::Mark, 0x000F0000, criteria,
+                                           true, 0x00FF0000, prefilter);
+  CHECK(high.find("CONNMARK") == std::string::npos);
+
+  // Without skip_marked_packets the companions do not test the mark.
+  prefilter.skip_marked_packets = false;
+  auto unmarked = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
+                                               true, 0x00FF0000, prefilter);
+  CHECK(unmarked.find("CONNMARK") == std::string::npos);
+}
+
+TEST_CASE("build_ipt_script: no flow cache lines unless asked for") {
+  FirewallRuleCriteria criteria;
+  FirewallGlobalPrefilter prefilter;
+  prefilter.skip_marked_packets = true;
+
+  auto s = T::build_ipt_script_for_rule(false, Rule::Mark, 0x00060000, criteria,
+                                        true, 0x00FF0000, prefilter);
+  CHECK(s.find("connmark") == std::string::npos);
+  CHECK(s.find("CONNMARK") == std::string::npos);
+}
+
 TEST_CASE("build_ipt_script: a zero fwmark keeps the full match in its companions") {
   FirewallGlobalPrefilter prefilter;
   prefilter.skip_marked_packets = true;

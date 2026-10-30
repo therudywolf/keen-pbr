@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <fstream>
 #include <optional>
 #include <set>
@@ -71,20 +72,79 @@ bool kernel_has_ppe_target(bool ipv6) {
     return false;
 }
 
+bool proc_list_has(const char* path, const char* name) {
+    std::ifstream list(path);
+    std::string line;
+    while (std::getline(list, line)) {
+        if (line == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The flow verdict cache needs the CONNMARK target and the connmark and
+// conntrack matches (--ctdir).
+bool kernel_has_flow_cache(bool ipv6) {
+    const char* targets = ipv6 ? "/proc/net/ip6_tables_targets" : "/proc/net/ip_tables_targets";
+    const char* matches = ipv6 ? "/proc/net/ip6_tables_matches" : "/proc/net/ip_tables_matches";
+    return proc_list_has(targets, "CONNMARK") && proc_list_has(matches, "connmark")
+        && proc_list_has(matches, "conntrack");
+}
+
+// Epochs 0..6; 7 is left out because Keenetic's own hotspot policy saves
+// marks like 0xffffaaa (fwmark byte 0xff) into the conntrack mark.
+constexpr uint32_t kFlowEpochs = 7;
+
+// The epoch of the rules in `script` for this family. It lives in /tmp,
+// which a reboot clears together with the conntrack table, and moves on
+// whenever the rules change, also across daemon restarts.
+uint32_t flow_epoch_for(bool ipv6, const std::string& script) {
+    const std::string path = ipv6 ? "/tmp/forest-pbr-flow-epoch6" : "/tmp/forest-pbr-flow-epoch4";
+    const std::string fingerprint = std::to_string(std::hash<std::string>{}(script));
+    std::string stored_fingerprint;
+    uint32_t epoch = 0;
+    bool have_stored = false;
+    {
+        std::ifstream in(path);
+        if (in >> stored_fingerprint >> epoch) {
+            have_stored = true;
+        }
+    }
+    if (have_stored && stored_fingerprint == fingerprint && epoch < kFlowEpochs) {
+        return epoch;
+    }
+    epoch = have_stored ? (epoch + 1) % kFlowEpochs : 0;
+    std::ofstream out(path, std::ios::trunc);
+    out << fingerprint << ' ' << epoch << '\n';
+    return epoch;
+}
+
 } // namespace
 
 IptablesFirewall::IptablesFirewall()
     : ppe_target_v4_(kernel_has_ppe_target(false)),
-      ppe_target_v6_(kernel_has_ppe_target(true)) {
+      ppe_target_v6_(kernel_has_ppe_target(true)),
+      flow_cache_v4_(kernel_has_flow_cache(false)),
+      flow_cache_v6_(kernel_has_flow_cache(true)) {
     if (ppe_target_v4_ || ppe_target_v6_) {
         Logger::instance().info(
             "iptables: PPE target found, marked flows are kept off fastnat and HW NAT");
     }
+    if (flow_cache_v4_ || flow_cache_v6_) {
+        Logger::instance().info(
+            "iptables: CONNMARK found, each flow's verdict is kept in its conntrack mark");
+    }
 }
 
-FirewallGlobalPrefilter IptablesFirewall::prefilter_for(bool ipv6) const {
+FirewallGlobalPrefilter IptablesFirewall::prefilter_for(
+    bool ipv6, const std::vector<PendingRule>& rules) const {
     FirewallGlobalPrefilter prefilter = global_prefilter_;
     prefilter.offload_guard = ipv6 ? ppe_target_v6_ : ppe_target_v4_;
+    if (ipv6 ? flow_cache_v6_ : flow_cache_v4_) {
+        prefilter.flow_epoch = flow_epoch_for(ipv6, build_ipt_script(ipv6, rules, prefilter, false));
+        prefilter.flow_cache = true;
+    }
     return prefilter;
 }
 
@@ -420,7 +480,8 @@ std::string IptablesFirewall::build_prefilter_lines(
 
 std::vector<std::string> IptablesFirewall::build_rule_lines(
     const PendingRule& pr,
-    const FirewallGlobalPrefilter& prefilter) {
+    const FirewallGlobalPrefilter& prefilter,
+    const FlowCachePlan* flow) {
     // iptables cannot express a multi-value negated -i guard in one rule, so
     // multi-interface allowlists are expanded into one positive -i match per rule.
     std::vector<std::string> iface_frags;
@@ -475,6 +536,13 @@ std::vector<std::string> IptablesFirewall::build_rule_lines(
             : match;
         if (prefilter.offload_guard) {
             lines.push_back(keen_pbr3::format("-A {}{} -j PPE\n", CHAIN_NAME, companion));
+        }
+        if (flow != nullptr) {
+            lines.push_back(keen_pbr3::format("-A {}{} -j CONNMARK --set-xmark {:#x}/{:#x}\n",
+                                              CHAIN_NAME,
+                                              companion,
+                                              flow->conn_value.at(marked_value),
+                                              flow->mask));
         }
         lines.push_back(keen_pbr3::format("-A {}{} -j RETURN\n", CHAIN_NAME, companion));
     };
@@ -552,14 +620,87 @@ std::string IptablesFirewall::build_ipt_script(bool ipv6,
         s += keen_pbr3::format("-A PREROUTING -j {}\n", CHAIN_NAME);
     }
     s += build_prefilter_lines(prefilter);
+    const auto flow = flow_cache_plan(consolidated, ipv6, prefilter);
+    if (flow.has_value()) {
+        // Only the original direction: a reply carrying the fwmark would be
+        // routed by a table that has no route back to the LAN.
+        for (const auto& [value, conn_value] : flow->conn_value) {
+            s += keen_pbr3::format(
+                "-A {} -m conntrack --ctdir ORIGINAL -m connmark --mark {:#x}/{:#x} -j MARK --set-xmark {:#x}/{:#x}\n",
+                CHAIN_NAME, conn_value, flow->mask, value, flow->mask);
+        }
+        s += keen_pbr3::format("-A {} -m mark ! --mark 0x0/0xffffffff -j ACCEPT\n", CHAIN_NAME);
+        s += keen_pbr3::format(
+            "-A {} -m conntrack --ctdir ORIGINAL -m connmark --mark {:#x}/{:#x} -j RETURN\n",
+            CHAIN_NAME, flow->unmatched, flow->mask);
+    }
     for (const auto& pr : consolidated) {
         if (pr.ipv6 != ipv6) continue;
-        for (const auto& line : build_rule_lines(pr, prefilter)) {
+        for (const auto& line : build_rule_lines(pr, prefilter, flow ? &*flow : nullptr)) {
             s += line;
+        }
+    }
+    if (flow.has_value()) {
+        // A packet that got here matched no rule: remember that for its flow.
+        std::vector<std::string> iface_frags{""};
+        if (prefilter.has_inbound_interfaces() && prefilter.inbound_interfaces->size() > 1) {
+            iface_frags.clear();
+            for (const auto& iface : *prefilter.inbound_interfaces) {
+                iface_frags.push_back(" -i " + iface);
+            }
+        }
+        for (const auto& iface_frag : iface_frags) {
+            s += keen_pbr3::format(
+                "-A {}{} -m conntrack --ctdir ORIGINAL -j CONNMARK --set-xmark {:#x}/{:#x}\n",
+                CHAIN_NAME, iface_frag, flow->unmatched, flow->mask);
         }
     }
     s += "COMMIT\n";
     return s;
+}
+
+std::optional<IptablesFirewall::FlowCachePlan> IptablesFirewall::flow_cache_plan(
+    const std::vector<PendingRule>& rules,
+    bool ipv6,
+    const FirewallGlobalPrefilter& prefilter) {
+    // The cache leans on the mark-tested companions, so it needs
+    // skip_marked_packets, and every MARK rule must share one contiguous
+    // mask wide enough for the index nibble and the epoch bits.
+    if (!prefilter.flow_cache || !prefilter.skip_marked_packets) {
+        return std::nullopt;
+    }
+    FlowCachePlan plan;
+    uint32_t shift = 0;
+    for (const auto& pr : rules) {
+        if (pr.ipv6 != ipv6 || pr.action != PendingRule::Mark) {
+            continue;
+        }
+        const uint32_t mask = pr.fwmark_mask;
+        if (plan.mask == 0) {
+            if (mask == 0) {
+                return std::nullopt;
+            }
+            shift = static_cast<uint32_t>(__builtin_ctz(mask));
+            const uint64_t field = static_cast<uint64_t>(mask) >> shift;
+            if ((field & (field + 1)) != 0 || field < 0x7F) {
+                return std::nullopt;
+            }
+            plan.mask = mask;
+        } else if (mask != plan.mask) {
+            return std::nullopt;
+        }
+        const uint32_t value = pr.fwmark & mask;
+        const uint32_t index = value >> shift;
+        if (index == 0 || index > 14) {
+            return std::nullopt;
+        }
+        plan.conn_value[value] = ((prefilter.flow_epoch << 4) | index) << shift;
+    }
+    if (plan.conn_value.empty()) {
+        return std::nullopt;
+    }
+    plan.unmatched = ((prefilter.flow_epoch << 4) | 15u) << shift;
+    return plan;
 }
 
 void IptablesFirewall::apply(FirewallApplyMode mode) {
@@ -673,11 +814,11 @@ void IptablesFirewall::apply(FirewallApplyMode mode) {
     // support is disabled (or unavailable), skip the v6 restore so we do not
     // assert chains in an unused table.
     pipe_to_cmd({"iptables-restore", "--noflush", "--counters"},
-                build_ipt_script(false, pending_rules_, prefilter_for(false)));
+                build_ipt_script(false, pending_rules_, prefilter_for(false, pending_rules_)));
     chain_v4_created_ = true;
     if (effective_ipv6) {
         pipe_to_cmd({"ip6tables-restore", "--noflush", "--counters"},
-                    build_ipt_script(true, pending_rules_, prefilter_for(true)));
+                    build_ipt_script(true, pending_rules_, prefilter_for(true, pending_rules_)));
         chain_v6_created_ = true;
     }
 }
@@ -841,7 +982,7 @@ void IptablesFirewall::apply_rules_only(bool effective_ipv6,
             safe_exec({iptables, "-t", "mangle", "-C", "PREROUTING", "-j", CHAIN_NAME},
                       /*suppress_output=*/true) == 0;
         pipe_to_cmd({iptables + "-restore", "--noflush", "--counters"},
-                    build_ipt_script(ipv6, pending_rules_, prefilter_for(ipv6), !jump_present));
+                    build_ipt_script(ipv6, pending_rules_, prefilter_for(ipv6, pending_rules_), !jump_present));
     };
     restore_family(false);
     chain_v4_created_ = true;
