@@ -372,6 +372,52 @@ TEST_CASE("generate-resolver-config includes fallback server directives in confi
     CHECK(primary_pos < backup_pos);
 }
 
+TEST_CASE("strict-order is emitted ahead of several fallback servers") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+
+    DnsServer primary;
+    primary.tag = "primary";
+    primary.address = "1.1.1.1";
+    DnsServer backup;
+    backup.tag = "backup";
+    backup.address = "9.9.9.9";
+
+    DnsConfig dns_cfg;
+    dns_cfg.servers = std::vector<DnsServer>{primary, backup};
+    dns_cfg.fallback = std::vector<std::string>{"primary", "backup"};
+
+    auto route_cfg = make_route_cfg("mylist");
+    auto lists = std::map<std::string, ListConfig>{{"mylist", make_list_cfg({"example.com"})}};
+
+    DnsServerRegistry reg(dns_cfg);
+    DnsmasqGenerator gen(reg, streamer, route_cfg, dns_cfg, lists);
+    const std::string output = run_generate(gen);
+
+    const auto strict_pos = output.find("\nstrict-order\n");
+    const auto primary_pos = output.find("server=1.1.1.1\n");
+
+    CHECK(strict_pos != std::string::npos);
+    CHECK(primary_pos != std::string::npos);
+    CHECK(strict_pos < primary_pos);
+}
+
+TEST_CASE("strict-order is left out for a single fallback server") {
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+
+    auto dns_cfg = make_empty_dns_cfg();
+    auto route_cfg = make_route_cfg("mylist");
+    auto lists = std::map<std::string, ListConfig>{{"mylist", make_list_cfg({"example.com"})}};
+
+    DnsServerRegistry reg(dns_cfg);
+    DnsmasqGenerator gen(reg, streamer, route_cfg, dns_cfg, lists);
+    const std::string output = run_generate(gen);
+
+    CHECK(output.find("server=127.0.0.1\n") != std::string::npos);
+    CHECK(output.find("strict-order") == std::string::npos);
+}
+
 TEST_CASE("hash changes when fallback list order changes") {
     CacheManager cache("/nonexistent/cache");
     ListStreamer streamer1(cache);

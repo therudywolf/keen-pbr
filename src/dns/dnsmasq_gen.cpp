@@ -156,8 +156,24 @@ void DnsmasqGenerator::generate_directives(
         *out << "\n";
     }
 
+    const std::vector<const DnsServerConfig*> fallback = dns_registry_.fallback_servers();
+    // With more than one upstream, dnsmasq's default is to favour whichever
+    // server answers fastest, which makes the fallback list a pool instead of
+    // the priority chain its name promises: queries reach the second and third
+    // resolver even while the first one is healthy. strict-order walks the list
+    // in configured order and moves on only when a server does not answer. The
+    // cost is failover speed - a dead first server is paid for with a timeout
+    // per query instead of being avoided after the first one.
+    if (fallback.size() > 1) {
+        if (hash_record_callback) {
+            hash_record_callback("strict-order|1");
+        }
+        if (out != nullptr) {
+            *out << "strict-order\n";
+        }
+    }
     size_t fallback_index = 0;
-    for (const DnsServerConfig* server : dns_registry_.fallback_servers()) {
+    for (const DnsServerConfig* server : fallback) {
         if (hash_record_callback) {
             hash_record_callback(
                 "fallback-server|" + std::to_string(fallback_index) +
