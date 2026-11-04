@@ -55,6 +55,18 @@ ScopeExit<Fn> make_scope_exit(Fn fn) {
     return ScopeExit<Fn>(std::move(fn));
 }
 
+// The same notion of health the daemon uses to name a switch: the member was
+// probed, its last probe passed and its breaker is not open.
+bool urltest_child_healthy(const UrltestState& state, const std::string& child_tag) {
+    const auto breaker = state.circuit_breakers.find(child_tag);
+    if (breaker != state.circuit_breakers.end() &&
+        breaker->second.state(child_tag) == CircuitState::open) {
+        return false;
+    }
+    const auto result = state.last_results.find(child_tag);
+    return result != state.last_results.end() && result->second.success;
+}
+
 } // namespace
 
 UrltestManager::UrltestManager(URLTester& tester,
@@ -90,6 +102,9 @@ void UrltestManager::register_urltest(const Outbound& ut,
         UrltestState state;
         state.config = ut;
         state.probe_interfaces = urltest_probe_interfaces(ut, outbounds);
+        const auto interval = normalize_interval_seconds(ut);
+        state.stall_guard = UrltestStallGuard(urltest_stall_window(interval),
+                                              urltest_stall_max_hold(interval));
 
         for (const auto& group : ut.outbound_groups.value_or(std::vector<OutboundGroup>{})) {
             for (const auto& child_tag : group.outbounds) {
@@ -130,6 +145,14 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
         std::string error;
     };
     std::vector<ProbeLogLine> probe_log_lines;
+    // A stall decision worth a log line, emitted once the lock is released.
+    std::optional<UrltestStallGuard::Verdict> stall_verdict;
+    bool stall_recovered = false;
+    std::string stall_applied;
+    std::string stall_correlated_with;
+    std::string stall_held_candidate;
+    std::chrono::seconds stall_window{0};
+    std::chrono::seconds stall_max_hold{0};
 
     {
         KPBR_SHARED_UNIQUE_LOCK(lock, mutex_);
@@ -153,6 +176,7 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
         }
 
         state.probe_inflight = false;
+        const auto stall_now = UrltestStallGuard::Clock::now();
 
         for (const auto& [child_tag, result] : results) {
             auto cb_it = state.circuit_breakers.find(child_tag);
@@ -167,6 +191,7 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
                 cb_it->second.record_failure(child_tag);
             }
             state.last_results[child_tag] = result;
+            state.stall_guard.record(child_tag, result.success, stall_now);
 
             const auto action = probe_failure_log_.record(
                 urltest_tag + '\x1f' + child_tag,
@@ -180,7 +205,33 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
 
         const std::string previous_selected = state.selected_outbound;
         new_selected = select_outbound(urltest_tag);
+        if (!previous_selected.empty() && new_selected != previous_selected &&
+            !urltest_child_healthy(state, previous_selected)) {
+            // The applied member failed. When other members are failing
+            // around the same time, the router itself is the likelier cause:
+            // keep the applied member instead of walking the group and
+            // flushing the moved flows on every step (see UrltestStallGuard).
+            const auto interface_it = state.probe_interfaces.find(previous_selected);
+            const bool interface_gone =
+                interface_it != state.probe_interfaces.end() &&
+                probe_interface_unavailable(interface_it->second).has_value();
+            stall_verdict = state.stall_guard.on_unhealthy_switch(
+                previous_selected, interface_gone, stall_now);
+            stall_applied = previous_selected;
+            stall_correlated_with = state.stall_guard.correlated_with();
+            stall_window = state.stall_guard.window();
+            stall_max_hold = state.stall_guard.max_hold();
+            if (stall_verdict == UrltestStallGuard::Verdict::hold_started ||
+                stall_verdict == UrltestStallGuard::Verdict::hold_continued) {
+                stall_held_candidate = new_selected;
+                new_selected = previous_selected;
+            }
+        } else if (new_selected == previous_selected) {
+            stall_recovered = state.stall_guard.end_hold();
+            stall_applied = previous_selected;
+        }
         if (new_selected != previous_selected) {
+            state.stall_guard.end_hold();
             state.selected_outbound = new_selected;
             selection_changed = true;
         }
@@ -200,6 +251,36 @@ bool UrltestManager::commit_probe_results(const std::string& urltest_tag,
                                     urltest_tag,
                                     line.child_tag);
         }
+    }
+
+    if (stall_verdict == UrltestStallGuard::Verdict::hold_started) {
+        Logger::instance().warn(
+            "Urltest '{}': keeping '{}' although its probe failed: '{}' failed within the "
+            "last {} s as well, which points at the router rather than at a tunnel; holding "
+            "for up to {} s instead of switching to '{}'",
+            urltest_tag,
+            stall_applied,
+            stall_correlated_with,
+            stall_window.count(),
+            stall_max_hold.count(),
+            stall_held_candidate.empty() ? std::string("(none)") : stall_held_candidate);
+    } else if (stall_verdict == UrltestStallGuard::Verdict::hold_continued) {
+        Logger::instance().trace("urltest_stall_hold",
+                                 "tag={} applied={} correlated_with={} candidate={}",
+                                 urltest_tag,
+                                 stall_applied,
+                                 stall_correlated_with,
+                                 stall_held_candidate.empty() ? std::string("-")
+                                                              : stall_held_candidate);
+    } else if (stall_verdict == UrltestStallGuard::Verdict::hold_expired) {
+        Logger::instance().warn("Urltest '{}': '{}' still fails after holding it for {} s; switching",
+                                urltest_tag,
+                                stall_applied,
+                                stall_max_hold.count());
+    } else if (stall_recovered) {
+        Logger::instance().info("Urltest '{}': '{}' works again; the hold ended without a switch",
+                                urltest_tag,
+                                stall_applied);
     }
 
     Logger::instance().trace("urltest_commit",

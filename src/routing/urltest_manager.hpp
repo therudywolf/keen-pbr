@@ -6,6 +6,7 @@
 #include "../util/blocking_executor.hpp"
 #include "../util/traced_mutex.hpp"
 #include "urltest_probe.hpp"
+#include "urltest_stall.hpp"
 
 #include <functional>
 #include <map>
@@ -26,6 +27,8 @@ struct UrltestState {
     // Device each interface-type candidate is probed through (child tag ->
     // interface); table-type candidates are probed by fwmark only.
     std::map<std::string, std::string> probe_interfaces;
+    // Tells a stall of the whole router from a failure of the applied member.
+    UrltestStallGuard stall_guard;
     int scheduler_task_id{-1};
     bool probe_inflight{false};
     std::uint64_t generation{0};

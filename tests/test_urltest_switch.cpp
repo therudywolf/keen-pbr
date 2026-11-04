@@ -2,6 +2,7 @@
 
 #include "../src/routing/urltest_routes.hpp"
 #include "../src/routing/urltest_switch.hpp"
+#include "../src/routing/urltest_stall.hpp"
 
 #include <chrono>
 #include <string>
@@ -103,4 +104,130 @@ TEST_CASE("infer_urltest_selection_from_routes: dual-stack default routes of one
                     outbounds, urltest,
                     {default_route(AF_INET, "ppp0", 0, std::string("100.64.0.9"))})
                     .has_value());
+}
+
+namespace {
+
+using StallClock = UrltestStallGuard::Clock;
+using StallVerdict = UrltestStallGuard::Verdict;
+
+StallClock::time_point stall_at(int seconds) {
+    return StallClock::time_point{} + std::chrono::hours{1} + std::chrono::seconds{seconds};
+}
+
+} // namespace
+
+TEST_CASE("urltest stall window and hold limit follow the probe interval, within bounds") {
+    CHECK(urltest_stall_window(std::chrono::seconds{20}) == std::chrono::seconds{60});
+    CHECK(urltest_stall_window(std::chrono::seconds{180}) == std::chrono::seconds{540});
+    CHECK(urltest_stall_window(std::chrono::seconds{3600}) == std::chrono::seconds{900});
+    CHECK(urltest_stall_max_hold(std::chrono::seconds{20}) == std::chrono::seconds{180});
+    CHECK(urltest_stall_max_hold(std::chrono::seconds{180}) == std::chrono::seconds{360});
+    CHECK(urltest_stall_max_hold(std::chrono::seconds{3600}) == std::chrono::seconds{600});
+
+    const UrltestStallGuard defaults{};
+    CHECK(defaults.window() == std::chrono::seconds{60});
+    CHECK(defaults.max_hold() == std::chrono::seconds{180});
+    CHECK_FALSE(defaults.holding());
+}
+
+TEST_CASE("UrltestStallGuard: a failure of the applied member alone switches at once") {
+    UrltestStallGuard guard(std::chrono::seconds{60}, std::chrono::seconds{180});
+    guard.record("awg", true, stall_at(0));
+    guard.record("xeovo", true, stall_at(0));
+    guard.record("https", true, stall_at(0));
+    guard.record("awg", false, stall_at(20));
+    guard.record("xeovo", true, stall_at(20));
+    guard.record("https", true, stall_at(20));
+
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(20)) == StallVerdict::switch_now);
+    CHECK_FALSE(guard.holding());
+    CHECK(guard.correlated_with().empty());
+}
+
+TEST_CASE("UrltestStallGuard: a member that just failed too makes it a stall, and the applied one is held") {
+    UrltestStallGuard guard(std::chrono::seconds{60}, std::chrono::seconds{180});
+    // 2026-11-04: the reserve flapped, then the primary timed out.
+    guard.record("awg", true, stall_at(0));
+    guard.record("xeovo", true, stall_at(0));
+    guard.record("xeovo", false, stall_at(20));
+    guard.record("awg", true, stall_at(20));
+    guard.record("xeovo", true, stall_at(40));
+    guard.record("awg", false, stall_at(60));
+
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(60)) == StallVerdict::hold_started);
+    CHECK(guard.holding());
+    CHECK(guard.correlated_with() == "xeovo");
+
+    // The next round of the stall keeps holding...
+    guard.record("xeovo", false, stall_at(100));
+    guard.record("awg", false, stall_at(100));
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(100)) == StallVerdict::hold_continued);
+
+    // ...and the applied member working again ends the hold without a switch.
+    CHECK(guard.end_hold());
+    CHECK_FALSE(guard.holding());
+    CHECK_FALSE(guard.end_hold());
+}
+
+TEST_CASE("UrltestStallGuard: a stall that outlasts the hold limit switches after all") {
+    UrltestStallGuard guard(std::chrono::seconds{60}, std::chrono::seconds{180});
+    guard.record("xeovo", true, stall_at(0));
+    guard.record("xeovo", false, stall_at(10));
+    guard.record("awg", false, stall_at(20));
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(20)) == StallVerdict::hold_started);
+
+    // The reserve keeps flapping and the primary keeps failing.
+    for (int t = 40; t < 200; t += 20) {
+        guard.record("xeovo", true, stall_at(t - 5));
+        guard.record("xeovo", false, stall_at(t));
+        guard.record("awg", false, stall_at(t));
+        CHECK(guard.on_unhealthy_switch("awg", false, stall_at(t)) == StallVerdict::hold_continued);
+    }
+    guard.record("xeovo", true, stall_at(195));
+    guard.record("xeovo", false, stall_at(200));
+    guard.record("awg", false, stall_at(200));
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(200)) == StallVerdict::hold_expired);
+    CHECK_FALSE(guard.holding());
+}
+
+TEST_CASE("UrltestStallGuard: a reserve that has been dead for a while does not hold a failing primary") {
+    UrltestStallGuard guard(std::chrono::seconds{60}, std::chrono::seconds{180});
+    // The reserve last worked ten minutes ago and has failed every round since.
+    guard.record("xeovo", true, stall_at(0));
+    for (int t = 20; t <= 600; t += 20) {
+        guard.record("xeovo", false, stall_at(t));
+        guard.record("awg", true, stall_at(t));
+    }
+    guard.record("xeovo", false, stall_at(620));
+    guard.record("awg", false, stall_at(620));
+
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(620)) == StallVerdict::switch_now);
+    CHECK_FALSE(guard.holding());
+}
+
+TEST_CASE("UrltestStallGuard: an applied member whose device is gone is never held") {
+    UrltestStallGuard guard(std::chrono::seconds{60}, std::chrono::seconds{180});
+    guard.record("xeovo", true, stall_at(0));
+    guard.record("xeovo", false, stall_at(10));
+    guard.record("awg", false, stall_at(20));
+
+    CHECK(guard.on_unhealthy_switch("awg", true, stall_at(20)) == StallVerdict::switch_now);
+    CHECK_FALSE(guard.holding());
+
+    // Not even in the middle of a hold.
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(20)) == StallVerdict::hold_started);
+    CHECK(guard.on_unhealthy_switch("awg", true, stall_at(40)) == StallVerdict::switch_now);
+    CHECK_FALSE(guard.holding());
+}
+
+TEST_CASE("UrltestStallGuard: the applied member's own flapping is not a stall") {
+    UrltestStallGuard guard(std::chrono::seconds{60}, std::chrono::seconds{180});
+    guard.record("awg", true, stall_at(0));
+    guard.record("awg", false, stall_at(10));
+    guard.record("awg", true, stall_at(20));
+    guard.record("xeovo", true, stall_at(20));
+    guard.record("awg", false, stall_at(40));
+
+    CHECK(guard.on_unhealthy_switch("awg", false, stall_at(40)) == StallVerdict::switch_now);
 }
