@@ -11,6 +11,7 @@
 
 #include <arpa/inet.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <map>
@@ -245,9 +246,25 @@ std::vector<RuleState> apply_runtime_firewall_impl(
         }
     }
 
-    if (config.dns.has_value()) {
-        const auto& dns_servers = config.dns->servers.value_or(std::vector<DnsServer>{});
-        const DnsServerRegistry dns_registry(config.dns.value_or(DnsConfig{}));
+    // Mark rules for DNS servers with a detour. Only they need the registry,
+    // and building it can need Keenetic RCI: without it these rules are
+    // skipped with a warning instead of failing the whole apply, since the
+    // routing of the lists must not depend on RCI.
+    const std::vector<DnsServer> dns_servers = config.dns.has_value()
+        ? config.dns->servers.value_or(std::vector<DnsServer>{})
+        : std::vector<DnsServer>{};
+    std::optional<DnsServerRegistry> dns_registry_holder;
+    if (std::any_of(dns_servers.begin(), dns_servers.end(),
+                    [](const DnsServer& server) { return server.detour.has_value(); })) {
+        try {
+            dns_registry_holder.emplace(config.dns.value_or(DnsConfig{}));
+        } catch (const std::exception& e) {
+            Logger::instance().warn("DNS server detour rules skipped: {}", e.what());
+        }
+    }
+
+    if (dns_registry_holder.has_value()) {
+        const DnsServerRegistry& dns_registry = *dns_registry_holder;
         for (const auto& server : dns_servers) {
             if (!server.detour.has_value()) {
                 continue;

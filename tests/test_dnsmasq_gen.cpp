@@ -7,6 +7,7 @@
 #include "../src/lists/list_streamer.hpp"
 
 #include <map>
+#include <optional>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -1199,4 +1200,109 @@ TEST_CASE("generate-resolver-config merges cached content with file and inline e
         cleanup();
         throw;
     }
+}
+
+// 2026-11-04: with NDM hung, /rci/show/dns-proxy failed, and a keenetic DNS
+// server that nothing used still made the daemon exit at start.
+
+namespace {
+
+DnsConfig keenetic_unused_dns_cfg() {
+    DnsServer keenetic_server;
+    keenetic_server.tag = "keenetic";
+    keenetic_server.type = api::DnsServerType::KEENETIC;
+    DnsServer stubby;
+    stubby.tag = "stubby";
+    stubby.address = "127.0.0.1:5453";
+    DnsConfig cfg;
+    cfg.servers = std::vector<DnsServer>{keenetic_server, stubby};
+    cfg.fallback = std::vector<std::string>{"stubby"};
+    return cfg;
+}
+
+} // namespace
+
+TEST_CASE("dns server registry does not resolve a keenetic server nothing uses") {
+    KeeneticDnsTestStateGuard guard;
+    int fetches = 0;
+    set_keenetic_dns_fetcher_for_tests([&fetches]() -> std::string {
+        ++fetches;
+        throw KeeneticDnsError("simulated RCI failure (NDM hung)");
+    });
+
+    const DnsConfig dns_cfg = keenetic_unused_dns_cfg();
+    std::optional<DnsServerRegistry> reg;
+    CHECK_NOTHROW(reg.emplace(dns_cfg));
+    REQUIRE(reg.has_value());
+    CHECK(reg->get_servers("keenetic").empty());
+    CHECK(reg->fallback_servers().size() == 1);
+    CHECK(fetches == 0);
+}
+
+TEST_CASE("dns server registry still fails when a keenetic server in use cannot be resolved") {
+    KeeneticDnsTestStateGuard guard;
+    set_keenetic_dns_fetcher_for_tests([]() -> std::string {
+        throw KeeneticDnsError("simulated RCI failure (NDM hung)");
+    });
+
+    DnsServer keenetic_server;
+    keenetic_server.tag = "keenetic";
+    keenetic_server.type = api::DnsServerType::KEENETIC;
+    DnsConfig dns_cfg;
+    dns_cfg.servers = std::vector<DnsServer>{keenetic_server};
+    dns_cfg.fallback = std::vector<std::string>{"keenetic"};
+
+    // No upstreams, no resolver config: the conf-script then hands dnsmasq
+    // the fallback file, as before.
+    CHECK_THROWS_AS((void)DnsServerRegistry(dns_cfg), KeeneticDnsError);
+}
+
+TEST_CASE("generate-resolver-config keeps keenetic static entries for a keenetic server nothing uses") {
+    KeeneticDnsTestStateGuard guard;
+    set_keenetic_dns_fetcher_for_tests([]() {
+        return std::string(R"({
+          "proxy-status": [
+            {
+              "proxy-name": "System",
+              "proxy-config": "dns_server = 127.0.0.1:40508 . # https://resolver.example/dns-query@dnsm\nstatic_a = my.keenetic.net 78.47.125.180 1\n"
+            }
+          ]
+        })");
+    });
+
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const DnsConfig dns_cfg = keenetic_unused_dns_cfg();
+    auto route_cfg = make_route_cfg("mylist");
+    auto lists = std::map<std::string, ListConfig>{{"mylist", make_list_cfg({"example.com"})}};
+
+    DnsServerRegistry reg(dns_cfg);
+    DnsmasqGenerator gen(reg, streamer, route_cfg, dns_cfg, lists);
+    const std::string output = run_generate(gen);
+
+    CHECK(output.find("address=/my.keenetic.net/78.47.125.180\n") != std::string::npos);
+    CHECK(output.find("server=127.0.0.1#5453\n") != std::string::npos);
+    // The unused keenetic server is not an upstream.
+    CHECK(output.find("server=127.0.0.1#40508") == std::string::npos);
+}
+
+TEST_CASE("generate-resolver-config does not need RCI for a keenetic server nothing uses") {
+    KeeneticDnsTestStateGuard guard;
+    set_keenetic_dns_fetcher_for_tests([]() -> std::string {
+        throw KeeneticDnsError("simulated RCI failure (NDM hung)");
+    });
+
+    CacheManager cache("/nonexistent/cache");
+    ListStreamer streamer(cache);
+    const DnsConfig dns_cfg = keenetic_unused_dns_cfg();
+    auto route_cfg = make_route_cfg("mylist");
+    auto lists = std::map<std::string, ListConfig>{{"mylist", make_list_cfg({"example.com"})}};
+
+    DnsServerRegistry reg(dns_cfg);
+    DnsmasqGenerator gen(reg, streamer, route_cfg, dns_cfg, lists);
+    const std::string output = run_generate(gen);
+
+    CHECK(output.find("server=127.0.0.1#5453\n") != std::string::npos);
+    CHECK(output.find("ipset=/example.com/") != std::string::npos);
+    CHECK(output.find("# Keenetic static DNS entries") == std::string::npos);
 }

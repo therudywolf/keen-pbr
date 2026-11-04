@@ -402,6 +402,15 @@ KeeneticDnsRefreshResult refresh_keenetic_dns_address_cache(bool force_refresh) 
             {},
             e.what()
         };
+    } catch (const std::exception& e) {
+        // Anything else the fetch throws is a failed fetch too: callers rely
+        // on this function not throwing.
+        const std::string error =
+            "Failed to query Keenetic RCI endpoint /rci/show/dns-proxy: " + std::string(e.what());
+        if (cache.snapshot.has_value()) {
+            return {KeeneticDnsRefreshStatus::FETCH_FAILED_USED_CACHE, cache.snapshot->addresses, error};
+        }
+        return {KeeneticDnsRefreshStatus::FETCH_FAILED_NO_CACHE, {}, error};
     }
 #else
     (void)force_refresh;

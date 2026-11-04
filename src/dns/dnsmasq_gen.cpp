@@ -33,6 +33,19 @@ bool dns_config_uses_keenetic_server(const DnsConfig& dns_config) {
     return false;
 }
 
+// The Keenetic static entries and upstream comments come from an RCI
+// snapshot. DnsServerRegistry fetches it only for a keenetic server that
+// something uses, so make it current here (it is cached for five minutes,
+// and the upstream list read right after uses the same snapshot). A failed
+// fetch leaves both empty instead of failing the whole config.
+std::vector<KeeneticStaticDnsEntry> keenetic_static_entries_for(const DnsConfig& dns_config) {
+    if (!dns_config_uses_keenetic_server(dns_config)) {
+        return {};
+    }
+    (void)refresh_keenetic_dns_address_cache(false);
+    return get_keenetic_static_dns_entries();
+}
+
 std::string keenetic_static_domain_pattern(const std::string& domain) {
     if (domain.size() > 2 && domain[0] == '*' && domain[1] == '.') {
         return "/" + domain.substr(2);
@@ -55,9 +68,7 @@ DnsmasqGenerator::DnsmasqGenerator(const DnsServerRegistry& dns_registry,
       route_config_(route_config),
       dns_config_(dns_config),
       lists_(lists),
-      keenetic_static_entries_(dns_config_uses_keenetic_server(dns_config)
-                                   ? get_keenetic_static_dns_entries()
-                                   : std::vector<KeeneticStaticDnsEntry>{}),
+      keenetic_static_entries_(keenetic_static_entries_for(dns_config)),
       keenetic_dns_upstreams_(dns_config_uses_keenetic_server(dns_config)
                                   ? get_keenetic_dns_upstreams()
                                   : std::vector<KeeneticDnsUpstreamEntry>{}),

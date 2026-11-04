@@ -41,20 +41,32 @@ bool dns_config_uses_keenetic_server(const std::optional<DnsConfig>& dns_cfg_opt
 } // namespace
 
 void Daemon::update_resolver_config_hash() {
-    ListStreamer streamer(list_service_.cache_manager());
-    const DnsConfig dns_cfg = config_.dns.value_or(DnsConfig{});
-    DnsServerRegistry dns_registry(dns_cfg);
-    const Ipv6SupportDecision ipv6_decision = resolve_ipv6_support(config_);
-    log_ipv6_support_decision_once(ipv6_decision);
-    resolver_config_hash_ = DnsmasqGenerator::compute_config_hash(
-        dns_registry,
-        streamer,
-        config_.route.value_or(RouteConfig{}),
-        dns_cfg,
-        config_.lists.value_or(std::map<std::string, ListConfig>{}),
-        KEEN_PBR3_VERSION_FULL_STRING,
-        ipv6_decision.enabled);
-    Logger::instance().info("Resolver config hash: {}", resolver_config_hash_);
+    // The hash only tells whether dnsmasq runs the config the daemon expects;
+    // routing does not depend on it. Computing it can need Keenetic RCI (a
+    // keenetic DNS server in use), and with NDM hung that fails: keep the last
+    // hash and go on instead of stopping the daemon. The periodic Keenetic DNS
+    // refresh computes it again once RCI answers.
+    try {
+        ListStreamer streamer(list_service_.cache_manager());
+        const DnsConfig dns_cfg = config_.dns.value_or(DnsConfig{});
+        DnsServerRegistry dns_registry(dns_cfg);
+        const Ipv6SupportDecision ipv6_decision = resolve_ipv6_support(config_);
+        log_ipv6_support_decision_once(ipv6_decision);
+        resolver_config_hash_ = DnsmasqGenerator::compute_config_hash(
+            dns_registry,
+            streamer,
+            config_.route.value_or(RouteConfig{}),
+            dns_cfg,
+            config_.lists.value_or(std::map<std::string, ListConfig>{}),
+            KEEN_PBR3_VERSION_FULL_STRING,
+            ipv6_decision.enabled);
+        Logger::instance().info("Resolver config hash: {}", resolver_config_hash_);
+    } catch (const std::exception& e) {
+        Logger::instance().warn(
+            "Resolver config hash not updated ({}); keeping '{}' until the next Keenetic DNS refresh",
+            e.what(),
+            resolver_config_hash_.empty() ? std::string("none") : resolver_config_hash_);
+    }
 }
 
 RuntimeStateSnapshot Daemon::build_runtime_state_snapshot() const {
