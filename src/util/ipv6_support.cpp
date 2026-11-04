@@ -61,7 +61,11 @@ bool probe_iptables_ipv6_support() {
     // instead: it works on every version and also proves that the IPv6
     // mangle table can be used.
     static constexpr const char* kProbeRuleset = "*mangle\nCOMMIT\n";
-    return safe_exec({"ip6tables", "-t", "mangle", "-S"},
+    // -w: wait for the xtables lock instead of failing at once. NDM rebuilds
+    // its firewall while forest-pbr starts, and a probe that met the lock
+    // held turned IPv6 off for the whole run (2026-11-04). iptables 1.4.21
+    // takes no timeout for -w; safe_exec's own deadline bounds the wait.
+    return safe_exec({"ip6tables", "-w", "-t", "mangle", "-S"},
                      /*suppress_output=*/true) == 0
         && safe_exec_pipe_stdin({"ip6tables-restore", "--test"}, kProbeRuleset,
                                 ExecFailureReport::Quiet) == 0;

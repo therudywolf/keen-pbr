@@ -158,9 +158,10 @@ EOF
 }
 
 # forest-pbr stand-in: `service` writes its PID file and runs until SIGTERM
-# (or ignores it when "$T/fake/daemon-ignores-term" exists); other commands
-# only succeed. "$T/fake/cli-sleep" makes them hang that many seconds, like
-# a CLI stuck in RCI.
+# (or ignores it when "$T/fake/daemon-ignores-term" exists); on SIGTERM it
+# takes "$T/fake/daemon-exit-delay" seconds to exit, like a daemon waiting
+# for a probe in flight. Other commands only succeed. "$T/fake/cli-sleep"
+# makes them hang that many seconds, like a CLI stuck in RCI.
 install_fake_daemon() {
     cat > "$T/opt/usr/bin/forest-pbr" <<'EOF'
 #!/bin/sh
@@ -183,7 +184,7 @@ fi
 if [ -f "$FAKE_ROOT/fake/daemon-ignores-term" ]; then
     trap '' TERM
 else
-    trap 'rm -f "$pidfile"; exit 0' TERM
+    trap 'sleep "$(cat "$FAKE_ROOT/fake/daemon-exit-delay" 2>/dev/null || echo 0)"; rm -f "$pidfile"; exit 0' TERM
 fi
 echo $$ > "$pidfile"
 while :; do

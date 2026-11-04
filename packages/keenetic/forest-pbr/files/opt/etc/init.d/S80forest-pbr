@@ -15,6 +15,10 @@ IPSET_COMPONENTS_MESSAGE="ipset kernel modules are not available. Make sure that
 KEENETIC_RCI_STARTUP_ATTEMPTS=5
 CLEANUP_FIREWALL="/opt/usr/lib/forest-pbr/cleanup-firewall.sh"
 STOP_WAIT_SECONDS=15
+# restart: how long the old daemon gets to exit after SIGTERM before SIGKILL.
+# Its shutdown first waits for work in flight, an urltest probe included (up
+# to its timeout per attempt).
+STOP_TIMEOUT_SECONDS=120
 
 # Hand the optional persistent log file down to the daemon environment so its
 # activity survives a reboot. Skipped silently when the value is unset.
@@ -344,6 +348,48 @@ daemon_alive() {
     return 1
 }
 
+# PIDs of the running daemon: the one its PID file names and any forest-pbr
+# running `service` without one (see daemon_alive).
+daemon_pids() {
+    local pid
+
+    pidof "$PROCS" 2>/dev/null
+    for pid in $(command pidof "$PROCS" 2>/dev/null); do
+        tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | grep -q ' service ' && echo "$pid"
+    done
+}
+
+# restart: stop the running daemon and wait until it is really gone before
+# rc.func starts the new one. rc.func's restart waits about 10 s after its
+# killall and then starts at once; a daemon still shutting down (it first
+# waits for work in flight, an urltest probe say) was "already running",
+# nothing was started, and when it exited no daemon was left (2026-11-04).
+# After STOP_TIMEOUT_SECONDS it gets SIGKILL: the new daemon reuses the ip
+# rules and routes a killed one leaves behind and rebuilds its firewall rules.
+stop_daemon_and_wait() {
+    local pids waited=0
+
+    pids=$(daemon_pids | sort -u)
+    [ -n "$pids" ] || return 0
+    kill -TERM $pids 2>/dev/null
+    while daemon_alive; do
+        if [ "$waited" -ge "$STOP_TIMEOUT_SECONDS" ]; then
+            log_warn "forest-pbr did not exit within ${STOP_TIMEOUT_SECONDS}s of SIGTERM; sending SIGKILL"
+            pids=$(daemon_pids | sort -u)
+            [ -n "$pids" ] && kill -KILL $pids 2>/dev/null
+            waited=0
+            while daemon_alive && [ "$waited" -lt 5 ]; do
+                sleep 1
+                waited=$((waited + 1))
+            done
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    ! daemon_alive
+}
+
 # After a clean stop the daemon has removed its firewall rules and ipsets;
 # after kill -9 or a crash they are still there. cleanup-firewall.sh removes
 # them (and logs a warning when it finds any) once the daemon is gone. It does
@@ -505,6 +551,13 @@ case "$1" in
             prepare_start
             download_lists
             POSTCMD="reapply_dnsmasq_config"
+            # Only now, so the daemon keeps routing while the steps above run.
+            # Not for restartall: rc.func does not know it and would start
+            # nothing after it.
+            if [ "$1" = restart ]; then
+                stop_daemon_and_wait ||
+                    log_error "forest-pbr still runs after SIGKILL; restart leaves it in place"
+            fi
         fi
         ;;
     stop|kill)

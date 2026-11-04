@@ -107,7 +107,7 @@ void write_fake_ip6tables_tools(const std::filesystem::path& dir, bool restore_s
         dir / "ip6tables",
         "#!/bin/sh\n"
         "printf '%s\\n' \"$*\" >> \"$FAKE_TOOLS_LOG\"\n"
-        "[ \"$#\" -eq 3 ] && [ \"$1\" = -t ] && [ \"$2\" = mangle ] && [ \"$3\" = -S ]\n");
+        "[ \"$*\" = \"-w -t mangle -S\" ]\n");
     write_executable(
         dir / "ip6tables-restore",
         std::string("#!/bin/sh\n"
@@ -222,14 +222,14 @@ TEST_CASE("iptables_ipv6_supported: probes ip6tables-restore with a test script"
     stdin_guard.set(stdin_path);
 
     CHECK(iptables_ipv6_supported());
-    CHECK(read_file(log_path) == "-t mangle -S\nrestore --test\n");
+    CHECK(read_file(log_path) == "-w -t mangle -S\nrestore --test\n");
     CHECK(read_file(stdin_path) == "*mangle\nCOMMIT\n");
 
     // A positive answer is cached: SIGUSR1 refreshes must not spawn the
     // probes again.
     CHECK(iptables_ipv6_supported());
     CHECK(iptables_ipv6_supported());
-    CHECK(read_file(log_path) == "-t mangle -S\nrestore --test\n");
+    CHECK(read_file(log_path) == "-w -t mangle -S\nrestore --test\n");
 }
 
 TEST_CASE("iptables_ipv6_supported: failing restore probe reports no IPv6") {
@@ -248,7 +248,7 @@ TEST_CASE("iptables_ipv6_supported: failing restore probe reports no IPv6") {
     CHECK_FALSE(iptables_ipv6_supported());
     // Within the retry window the negative answer is reused as well.
     CHECK_FALSE(iptables_ipv6_supported());
-    CHECK(read_file(log_path) == "-t mangle -S\nrestore --test\n");
+    CHECK(read_file(log_path) == "-w -t mangle -S\nrestore --test\n");
 }
 
 TEST_CASE("resolve_ipv6_support: config flag is honoured on every call despite cached probes") {
